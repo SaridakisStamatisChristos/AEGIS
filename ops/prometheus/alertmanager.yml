@@ -1,0 +1,37 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: aegisrun-oncall-primary
+  group_by: [alertname, team, severity]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 2h
+  routes:
+    - matchers:
+        - alertname="AegisRunErrorBudgetBurn"
+      receiver: aegisrun-oncall-primary
+      continue: true
+    - matchers:
+        - alertname="AegisRunErrorBudgetBurn"
+      receiver: aegisrun-oncall-secondary
+      continue: true
+    - matchers:
+        - alertname="AegisRunErrorBudgetBurn"
+      receiver: aegisrun-escalation
+
+receivers:
+  - name: aegisrun-oncall-primary
+    webhook_configs:
+      - url: ${ALERTMANAGER_WEBHOOK_PRIMARY_URL:-http://localhost:18080/alerts/primary}
+        send_resolved: true
+
+  - name: aegisrun-oncall-secondary
+    webhook_configs:
+      - url: ${ALERTMANAGER_WEBHOOK_SECONDARY_URL:-http://localhost:18080/alerts/secondary}
+        send_resolved: true
+
+  - name: aegisrun-escalation
+    webhook_configs:
+      - url: ${ALERTMANAGER_WEBHOOK_ESCALATION_URL:-http://localhost:18080/alerts/escalation}
+        send_resolved: true

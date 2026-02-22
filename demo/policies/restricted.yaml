@@ -1,0 +1,161 @@
+# AegisRun Restricted Policy
+# For high-security environments
+# Implements defense-in-depth with strict controls
+
+name: restricted-secure
+version: v1
+description: |
+  Highly restricted policy with tight controls.
+  Blocks most operations by default, requires explicit approval
+  for sensitive actions, and enforces strict egress controls.
+
+tools:
+  # HTTP requests - very restricted
+  - name: http_request
+    action: allow
+    arg_schema:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          pattern: '^https://.*$'  # HTTPS only
+        method:
+          type: string
+          enum: [GET, HEAD]  # Read-only methods
+        headers:
+          type: object
+        timeout_sec:
+          type: integer
+          maximum: 30
+      required: [url, method]
+    conditions:
+      - 'args.method == "GET" || args.method == "HEAD"'
+      - '!args.url.contains("169.254.")'  # Block metadata endpoints
+      - '!args.url.contains("localhost")'
+      - '!args.url.contains("127.0.0.1")'
+
+  # POST requests require approval
+  - name: http_request_post
+    action: require_approval
+    arg_schema:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        method:
+          type: string
+          enum: [POST]
+        body:
+          type: string
+          maxLength: 10240  # 10KB max
+      required: [url, method]
+
+  # File read - sandboxed
+  - name: file_read
+    action: allow
+    arg_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          pattern: '^/data/|^/tmp/|^./data/'
+      required: [path]
+    conditions:
+      - 'args.path.startsWith("/data/") || args.path.startsWith("/tmp/") || args.path.startsWith("./data/")'
+      - '!args.path.contains("..")'  # No path traversal
+
+  # File write - blocked by default
+  - name: file_write
+    action: block
+    reason: "File writes are not permitted in restricted mode"
+
+  # Shell execution - completely blocked
+  - name: shell_exec
+    action: block
+    reason: "Shell execution is not permitted in restricted mode"
+
+  # Database - read only
+  - name: database_query
+    action: allow
+    arg_schema:
+      type: object
+      properties:
+        query:
+          type: string
+          pattern: '^SELECT\s'
+        params:
+          type: array
+      required: [query]
+    conditions:
+      - 'args.query.toUpperCase().startsWith("SELECT")'
+      - '!args.query.toUpperCase().contains("DELETE")'
+      - '!args.query.toUpperCase().contains("UPDATE")'
+      - '!args.query.toUpperCase().contains("INSERT")'
+      - '!args.query.toUpperCase().contains("DROP")'
+
+  # Database write - requires approval
+  - name: database_write
+    action: require_approval
+    arg_schema:
+      type: object
+      properties:
+        table:
+          type: string
+        data:
+          type: object
+      required: [table, data]
+
+# Block all unspecified tools
+default_action: block
+
+# Conservative budgets
+budgets:
+  max_tool_calls: 50
+  max_wall_clock_sec: 300  # 5 minutes
+  max_retries: 3
+  max_bytes_egressed: 102400  # 100KB
+
+# Strict egress controls
+egress_controls:
+  domain_allowlist:
+    - "api.company.internal"
+    - "storage.company.internal"
+  domain_denylist:
+    - "*.ngrok.io"
+    - "*.tunnel.com"
+    - "pastebin.com"
+    - "hastebin.com"
+    - "transfer.sh"
+    - "file.io"
+  block_private_ips: true
+
+# Comprehensive redaction
+redaction:
+  patterns:
+    # Credentials
+    - '(?i)password\s*[:=]\s*\S+'
+    - '(?i)api[_-]?key\s*[:=]\s*\S+'
+    - '(?i)secret\s*[:=]\s*\S+'
+    - '(?i)token\s*[:=]\s*\S+'
+    - '(?i)bearer\s+\S+'
+    - '(?i)authorization\s*:\s*\S+'
+    # PII
+    - '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    - '\b\d{3}[-.]?\d{3}[-.]?\d{4}\b'
+    - '\b\d{3}[-]?\d{2}[-]?\d{4}\b'
+    - '\b(?:\d{4}[-\s]?){3}\d{4}\b'
+    # AWS keys
+    - 'AKIA[0-9A-Z]{16}'
+    - '[A-Za-z0-9/+]{40}'
+    # Private keys
+    - '-----BEGIN.*PRIVATE KEY-----'
+    - '-----BEGIN.*SECRET-----'
+  mask_strategy: hash
+
+metadata:
+  environment: restricted
+  risk_level: high
+  requires_approval: true
+  approval_required_count: 2

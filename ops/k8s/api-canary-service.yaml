@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegisrun-api-canary
+  namespace: aegisrun
+  labels:
+    app.kubernetes.io/name: aegisrun
+    app.kubernetes.io/component: api
+    app.kubernetes.io/variant: canary
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: aegisrun
+    app.kubernetes.io/component: api
+    app.kubernetes.io/variant: canary

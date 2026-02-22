@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aegisrun
+  labels:
+    app.kubernetes.io/name: aegisrun
+    app.kubernetes.io/part-of: aegisrun

@@ -1,0 +1,6 @@
+﻿AegisRun verification evidence
+Timestamp (UTC): 20260222T090200Z
+Repository: C:\Users\scsar\Desktop\aegis2
+
+[START] api-tests
+[CMD] Set-Location api; go test ./...

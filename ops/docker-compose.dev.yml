@@ -1,0 +1,218 @@
+version: '3.8'
+
+# AegisRun Development Docker Compose
+# Features: Hot reload, debugging, development tools
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: aegisrun-postgres-dev
+    environment:
+      POSTGRES_USER: aegisrun
+      POSTGRES_PASSWORD: aegisrun_dev
+      POSTGRES_DB: aegisrun_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ../api/migrations:/docker-entrypoint-initdb.d/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aegisrun -d aegisrun_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - aegisrun-dev
+
+  api:
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+      target: development
+    container_name: aegisrun-api-dev
+    ports:
+      - "8080:8080"
+      - "2345:2345"  # Delve debugger
+    environment:
+      APP_ENV: development
+      PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: aegisrun
+      DB_PASSWORD: aegisrun_dev
+      DB_NAME: aegisrun_dev
+      DB_SSL_MODE: disable
+      OIDC_ISSUER: http://mock-oidc:9090
+      CORS_ALLOW_ORIGIN: "http://localhost:5173"
+      RATE_LIMIT_RPS: 100
+      RATE_LIMIT_BURST: 200
+      LOG_LEVEL: debug
+      LOG_FORMAT: console
+      METRICS_ENABLED: "true"
+      METRICS_PORT: "9090"
+      SIGNING_KEY_PATH: /app/keys/signing.key
+      DEV_MODE: "true"
+    volumes:
+      - ../api:/app:cached
+      - go_mod_cache:/go/pkg/mod
+      - go_build_cache:/root/.cache/go-build
+      - ./keys:/app/keys:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "
+        go install github.com/air-verse/air@latest &&
+        air -c .air.toml
+      "
+    networks:
+      - aegisrun-dev
+
+  ui:
+    build:
+      context: ../ui
+      dockerfile: Dockerfile
+      target: development
+    container_name: aegisrun-ui-dev
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:8080
+      NODE_ENV: development
+    volumes:
+      - ../ui:/app:cached
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0
+    depends_on:
+      - api
+    networks:
+      - aegisrun-dev
+
+  mock-oidc:
+    image: ghcr.io/navikt/mock-oauth2-server:2.1.1
+    container_name: aegisrun-mock-oidc
+    ports:
+      - "9090:9090"
+    environment:
+      SERVER_PORT: 9090
+      JSON_CONFIG: |
+        {
+          "interactiveLogin": true,
+          "tokenCallbacks": [
+            {
+              "issuerId": "aegisrun",
+              "tokenExpiry": 3600,
+              "requestMappings": [
+                {
+                  "requestParam": "scope",
+                  "match": "*",
+                  "claims": {
+                    "sub": "dev-user",
+                    "email": "dev@aegisrun.local",
+                    "name": "Development User",
+                    "org_id": "01JQZX3K2FGH9VWBCD45DEVORG"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+    networks:
+      - aegisrun-dev
+
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    container_name: aegisrun-prometheus-dev
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_dev_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    depends_on:
+      - api
+      - alertmanager
+    networks:
+      - aegisrun-dev
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: aegisrun-alertmanager-dev
+    ports:
+      - "9093:9093"
+    environment:
+      ALERTMANAGER_WEBHOOK_PRIMARY_URL: ${ALERTMANAGER_WEBHOOK_PRIMARY_URL:-http://localhost:18080/alerts/primary}
+      ALERTMANAGER_WEBHOOK_SECONDARY_URL: ${ALERTMANAGER_WEBHOOK_SECONDARY_URL:-http://localhost:18080/alerts/secondary}
+      ALERTMANAGER_WEBHOOK_ESCALATION_URL: ${ALERTMANAGER_WEBHOOK_ESCALATION_URL:-http://localhost:18080/alerts/escalation}
+    volumes:
+      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_dev_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--config.expand-env'
+      - '--storage.path=/alertmanager'
+      - '--web.listen-address=:9093'
+    networks:
+      - aegisrun-dev
+
+  grafana:
+    image: grafana/grafana:10.3.1
+    container_name: aegisrun-grafana-dev
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_dev_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - aegisrun-dev
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: aegisrun-mailhog-dev
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - aegisrun-dev
+
+  pgadmin:
+    image: dpage/pgadmin4:8.2
+    container_name: aegisrun-pgadmin-dev
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@aegisrun.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    volumes:
+      - pgadmin_dev_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - aegisrun-dev
+
+volumes:
+  postgres_dev_data:
+  go_mod_cache:
+  go_build_cache:
+  prometheus_dev_data:
+  alertmanager_dev_data:
+  grafana_dev_data:
+  pgadmin_dev_data:
+
+networks:
+  aegisrun-dev:
+    driver: bridge

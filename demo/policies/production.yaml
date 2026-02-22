@@ -1,0 +1,221 @@
+# AegisRun Production Policy
+# Balanced security and functionality for production deployments
+# Implements security best practices while allowing legitimate operations
+
+name: production-standard
+version: v1
+description: |
+  Production-ready policy with balanced security controls.
+  Allows common operations while blocking known-dangerous patterns,
+  requiring approval for high-risk actions, and enforcing data protection.
+
+tools:
+  # HTTP GET/HEAD requests - allowed to approved domains
+  - name: http_request
+    action: allow
+    arg_schema:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        method:
+          type: string
+          enum: [GET, HEAD, POST, PUT, PATCH]
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        body:
+          type: string
+          maxLength: 1048576  # 1MB max
+        timeout_sec:
+          type: integer
+          minimum: 1
+          maximum: 60
+      required: [url, method]
+    conditions:
+      # Block SSRF targets
+      - '!args.url.contains("169.254.")'
+      - '!args.url.contains("metadata.google")'
+      - '!args.url.contains("localhost")'
+      - '!args.url.contains("127.0.0.1")'
+      - '!args.url.matches("^https?://10\\.")'
+      - '!args.url.matches("^https?://172\\.(1[6-9]|2[0-9]|3[01])\\.")'
+      - '!args.url.matches("^https?://192\\.168\\.")'
+    output_validators:
+      - type: size
+        max_bytes: 10485760  # 10MB response limit
+
+  # DELETE requests require approval
+  - name: http_request_delete
+    action: require_approval
+    arg_schema:
+      type: object
+      properties:
+        url:
+          type: string
+        method:
+          type: string
+          enum: [DELETE]
+      required: [url, method]
+
+  # File read - allowed within workspace
+  - name: file_read
+    action: allow
+    arg_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          maxLength: 4096
+      required: [path]
+    conditions:
+      - '!args.path.contains("..")'
+      - '!args.path.startsWith("/etc/")'
+      - '!args.path.startsWith("/proc/")'
+      - '!args.path.startsWith("/sys/")'
+      - '!args.path.contains(".ssh")'
+      - '!args.path.contains(".aws")'
+      - '!args.path.contains(".env")'
+
+  # File write - allowed to specific directories
+  - name: file_write
+    action: allow
+    arg_schema:
+      type: object
+      properties:
+        path:
+          type: string
+          pattern: '^(/tmp/|/var/tmp/|./output/|./results/)'
+        content:
+          type: string
+          maxLength: 10485760  # 10MB
+      required: [path, content]
+    conditions:
+      - 'args.path.startsWith("/tmp/") || args.path.startsWith("/var/tmp/") || args.path.startsWith("./output/") || args.path.startsWith("./results/")'
+      - '!args.path.contains("..")'
+
+  # Shell execution - blocked
+  - name: shell_exec
+    action: block
+    reason: "Shell execution disabled in production. Use approved tool wrappers."
+
+  # Database read
+  - name: database_query
+    action: allow
+    arg_schema:
+      type: object
+      properties:
+        query:
+          type: string
+          maxLength: 65536
+        params:
+          type: array
+          maxItems: 100
+        timeout_ms:
+          type: integer
+          maximum: 30000
+      required: [query]
+    conditions:
+      - '!args.query.toUpperCase().contains("DROP")'
+      - '!args.query.toUpperCase().contains("TRUNCATE")'
+      - '!args.query.toUpperCase().contains("ALTER")'
+      - '!args.query.toUpperCase().contains("GRANT")'
+      - '!args.query.toUpperCase().contains("REVOKE")'
+
+  # Database write - warn (allows INSERT/UPDATE)
+  - name: database_write
+    action: warn
+    arg_schema:
+      type: object
+      properties:
+        table:
+          type: string
+        operation:
+          type: string
+          enum: [insert, update, upsert]
+        data:
+          type: object
+      required: [table, operation, data]
+    conditions:
+      - 'args.operation == "insert" || args.operation == "update" || args.operation == "upsert"'
+
+  # Database admin operations require approval
+  - name: database_admin
+    action: require_approval
+    arg_schema:
+      type: object
+      properties:
+        operation:
+          type: string
+          enum: [create_table, drop_table, add_column, delete]
+      required: [operation]
+
+# Warn on unknown tools
+default_action: warn
+
+# Production budgets
+budgets:
+  max_tool_calls: 500
+  max_wall_clock_sec: 1800  # 30 minutes
+  max_retries: 10
+  max_bytes_egressed: 52428800  # 50MB
+
+# Production egress controls
+egress_controls:
+  domain_allowlist:
+    - "*.company.com"
+    - "*.amazonaws.com"
+    - "*.googleapis.com"
+    - "*.azure.com"
+    - "api.openai.com"
+    - "api.anthropic.com"
+  domain_denylist:
+    - "*.ngrok.io"
+    - "*.tunnel.com"
+    - "*.serveo.net"
+    - "pastebin.com"
+    - "hastebin.com"
+    - "transfer.sh"
+    - "file.io"
+    - "*.onion"
+  block_private_ips: true
+
+# Production redaction
+redaction:
+  patterns:
+    # Credentials
+    - '(?i)(password|passwd|pwd)\s*[:=]\s*[^\s]+'
+    - '(?i)(api[_-]?key|apikey)\s*[:=]\s*[^\s]+'
+    - '(?i)(secret|private[_-]?key)\s*[:=]\s*[^\s]+'
+    - '(?i)(token|auth[_-]?token)\s*[:=]\s*[^\s]+'
+    - '(?i)bearer\s+[A-Za-z0-9._-]+'
+    - '(?i)authorization\s*:\s*[^\n]+'
+    - '(?i)x-api-key\s*:\s*[^\n]+'
+    # PII
+    - '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b'
+    - '\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b'
+    - '\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b'
+    - '\b(?:\d{4}[-\s]?){3}\d{4}\b'
+    # Cloud credentials
+    - 'AKIA[0-9A-Z]{16}'
+    - '(?i)aws[_-]?(access[_-]?key|secret)'
+    - '[A-Za-z0-9+/]{40}={0,2}'
+    # Private keys
+    - '-----BEGIN[^-]+PRIVATE KEY-----'
+    - '-----BEGIN[^-]+SECRET-----'
+    # Connection strings
+    - '(?i)mongodb(\+srv)?://[^\s]+'
+    - '(?i)postgres(ql)?://[^\s]+'
+    - '(?i)mysql://[^\s]+'
+    - '(?i)redis://[^\s]+'
+  mask_strategy: hash
+
+metadata:
+  environment: production
+  risk_level: medium
+  requires_approval: false
+  review_required_for:
+    - database_admin
+    - http_request_delete

@@ -1,0 +1,116 @@
+# AegisRun Permissive Policy
+# For development and testing environments
+# WARNING: Not suitable for production use
+
+name: permissive-development
+version: v1
+description: |
+  Permissive policy that allows most operations with warnings.
+  Suitable for development and testing environments where
+  rapid iteration is prioritized over strict security.
+
+tools:
+  # HTTP requests - warn but allow
+  - name: http_request
+    action: warn
+    arg_schema:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        method:
+          type: string
+          enum: [GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS]
+        headers:
+          type: object
+        body:
+          type: string
+      required: [url, method]
+
+  # File operations - allow with warnings for writes
+  - name: file_read
+    action: allow
+    arg_schema:
+      type: object
+      properties:
+        path:
+          type: string
+      required: [path]
+
+  - name: file_write
+    action: warn
+    arg_schema:
+      type: object
+      properties:
+        path:
+          type: string
+        content:
+          type: string
+      required: [path, content]
+
+  # Shell execution - warn (dangerous but allowed in dev)
+  - name: shell_exec
+    action: warn
+    arg_schema:
+      type: object
+      properties:
+        command:
+          type: string
+        timeout_sec:
+          type: integer
+          default: 30
+      required: [command]
+
+  # Database operations - allow
+  - name: database_query
+    action: allow
+    arg_schema:
+      type: object
+      properties:
+        query:
+          type: string
+        params:
+          type: array
+      required: [query]
+
+  - name: database_write
+    action: warn
+    arg_schema:
+      type: object
+      properties:
+        table:
+          type: string
+        data:
+          type: object
+      required: [table, data]
+
+# Default action for unspecified tools
+default_action: warn
+
+# High budget limits for development
+budgets:
+  max_tool_calls: 10000
+  max_wall_clock_sec: 86400  # 24 hours
+  max_retries: 100
+  max_bytes_egressed: 1073741824  # 1GB
+
+# Relaxed egress controls
+egress_controls:
+  domain_allowlist: []  # Empty = allow all
+  domain_denylist: []
+  block_private_ips: false
+
+# Basic redaction (still protect obvious secrets)
+redaction:
+  patterns:
+    - '(?i)password\s*[:=]\s*\S+'
+    - '(?i)api[_-]?key\s*[:=]\s*\S+'
+    - '(?i)secret\s*[:=]\s*\S+'
+    - '(?i)bearer\s+\S+'
+  mask_strategy: truncate
+
+metadata:
+  environment: development
+  risk_level: low
+  requires_approval: false

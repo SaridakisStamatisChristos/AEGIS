@@ -1,0 +1,315 @@
+# =============================================================================
+# AegisRun Prometheus Alert Rules & SLO Definitions
+# =============================================================================
+# Covers the top-5 failure modes:
+#   1. API availability / readiness degradation
+#   2. High request latency (SLO breach)
+#   3. Elevated error rate
+#   4. Database health issues
+#   5. Gateway / tool-call throughput degradation
+# =============================================================================
+
+groups:
+
+  # =========================================================================
+  # SLO: API Availability & Latency
+  # =========================================================================
+  - name: aegisrun-slo-api
+    interval: 30s
+    rules:
+
+      # -- Recording rules for SLO burn-rate windows --
+
+      # 5-minute error ratio
+      - record: aegisrun:http_error_ratio_5m
+        expr: |
+          sum(rate(aegisrun_http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(aegisrun_http_requests_total[5m]))
+
+      # 30-minute error ratio
+      - record: aegisrun:http_error_ratio_30m
+        expr: |
+          sum(rate(aegisrun_http_requests_total{status=~"5.."}[30m]))
+          /
+          sum(rate(aegisrun_http_requests_total[30m]))
+
+      # 1-hour error ratio
+      - record: aegisrun:http_error_ratio_1h
+        expr: |
+          sum(rate(aegisrun_http_requests_total{status=~"5.."}[1h]))
+          /
+          sum(rate(aegisrun_http_requests_total[1h]))
+
+      # P99 latency over 5 minutes
+      - record: aegisrun:http_request_duration_p99_5m
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(aegisrun_http_request_duration_seconds_bucket[5m])) by (le)
+          )
+
+      # P95 latency over 5 minutes
+      - record: aegisrun:http_request_duration_p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(aegisrun_http_request_duration_seconds_bucket[5m])) by (le)
+          )
+
+      # Gateway P99 latency
+      - record: aegisrun:gateway_tool_call_duration_p99_5m
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(aegisrun_gateway_tool_call_duration_seconds_bucket[5m])) by (le)
+          )
+
+  # =========================================================================
+  # Alerts: API Availability (Failure Mode #1)
+  # =========================================================================
+  - name: aegisrun-alerts-availability
+    rules:
+
+      - alert: AegisRunAPIDown
+        expr: up{job="aegisrun-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "AegisRun API is down"
+          description: "Prometheus cannot reach the AegisRun API metrics endpoint. The service may be crashed or unreachable."
+          runbook_url: "https://docs.aegisrun.dev/runbooks/api-down"
+
+      - alert: AegisRunReadinessFailure
+        expr: |
+          probe_success{job="aegisrun-api", probe="readiness"} == 0
+          or
+          aegisrun_http_requests_total{path="/ready", status=~"5.."} > 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "AegisRun API readiness check failing"
+          description: "/ready endpoint is returning errors — the API cannot serve traffic (likely DB connection issue)."
+
+      - alert: AegisRunHighReplicaUnavailability
+        expr: |
+          kube_deployment_status_replicas_unavailable{deployment="aegisrun-api"} > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "AegisRun API has unavailable replicas"
+          description: "{{ $value }} replicas of aegisrun-api are not ready."
+
+  # =========================================================================
+  # Alerts: API Latency SLO (Failure Mode #2)
+  # Target: P99 < 500ms, P95 < 200ms
+  # =========================================================================
+  - name: aegisrun-alerts-latency
+    rules:
+
+      - alert: AegisRunLatencyP99High
+        expr: aegisrun:http_request_duration_p99_5m > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "AegisRun API P99 latency > 500ms"
+          description: "P99 request latency has been {{ $value | humanizeDuration }} for 5+ minutes. SLO target is <500ms."
+
+      - alert: AegisRunLatencyP99Critical
+        expr: aegisrun:http_request_duration_p99_5m > 2.0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "AegisRun API P99 latency > 2s (critical)"
+          description: "P99 request latency is {{ $value | humanizeDuration }}. Likely upstream or DB issue."
+
+      - alert: AegisRunGatewayLatencyHigh
+        expr: aegisrun:gateway_tool_call_duration_p99_5m > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Gateway tool-call P99 latency > 1s"
+          description: "Tool-call processing is slow — P99 is {{ $value | humanizeDuration }}."
+
+  # =========================================================================
+  # Alerts: Error Rate SLO (Failure Mode #3)
+  # Target: <1% 5xx rate over any 5-minute window (99.0% availability SLO)
+  # =========================================================================
+  - name: aegisrun-alerts-errors
+    rules:
+
+      - alert: AegisRunErrorRateHigh
+        expr: aegisrun:http_error_ratio_5m > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "AegisRun API error rate > 1%"
+          description: "5xx error ratio is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: AegisRunErrorRateCritical
+        expr: aegisrun:http_error_ratio_5m > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "AegisRun API error rate > 5% (critical)"
+          description: "5xx error ratio is {{ $value | humanizePercentage }}. Likely systemic failure — check DB and gateway."
+
+      - alert: AegisRunErrorBudgetBurn
+        expr: |
+          aegisrun:http_error_ratio_1h > (1 - 0.990) * 14.4
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "AegisRun 30-day error budget burning fast"
+          description: "At the current error rate the monthly 99.0% error budget will be exhausted within hours."
+
+  # =========================================================================
+  # Alerts: Database Health (Failure Mode #4)
+  # =========================================================================
+  - name: aegisrun-alerts-database
+    rules:
+
+      - alert: AegisRunDBConnectionPoolExhausted
+        expr: aegisrun_db_connections_active >= 23
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "DB connection pool near exhaustion"
+          description: "{{ $value }}/25 active connections. Queries will start failing."
+
+      - alert: AegisRunDBQueryLatencyHigh
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(aegisrun_db_query_duration_seconds_bucket[5m])) by (le)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "DB P99 query latency > 500ms"
+          description: "Database queries are slow. Check slow-query log, vacuum status, and connection count."
+
+      - alert: AegisRunDBDown
+        expr: pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PostgreSQL is down"
+          description: "The postgres-exporter cannot reach the database. Immediate action required."
+          runbook_url: "https://docs.aegisrun.dev/runbooks/db-down"
+
+      - alert: AegisRunDBReplicationLag
+        expr: pg_replication_lag > 60
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL replication lag > 60s"
+          description: "Replication lag is {{ $value }}s. Check replica health."
+
+      - alert: AegisRunDBDiskSpaceLow
+        expr: |
+          (pg_database_size_bytes{datname="aegisrun"} / pg_tablespace_size_bytes) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL disk usage > 85%"
+          description: "Database storage is filling up. Plan capacity increase."
+
+  # =========================================================================
+  # Alerts: Gateway / Tool-Call Throughput (Failure Mode #5)
+  # =========================================================================
+  - name: aegisrun-alerts-gateway
+    rules:
+
+      - alert: AegisRunGatewayNoTraffic
+        expr: |
+          sum(rate(aegisrun_gateway_tool_calls_total[10m])) == 0
+          and
+          sum(rate(aegisrun_http_requests_total[10m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Zero gateway tool calls despite API traffic"
+          description: "The gateway is not processing any tool calls. Possible routing or gateway failure."
+
+      - alert: AegisRunPolicyEvalSlow
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(aegisrun_gateway_policy_eval_duration_seconds_bucket[5m])) by (le)
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Policy evaluation P99 > 100ms"
+          description: "Policy evaluation is taking {{ $value | humanizeDuration }}. Check policy complexity."
+
+      - alert: AegisRunHighBlockRate
+        expr: |
+          sum(rate(aegisrun_gateway_policy_decisions_total{decision="block"}[5m]))
+          /
+          sum(rate(aegisrun_gateway_policy_decisions_total[5m]))
+          > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Over 50% of tool calls blocked by policy"
+          description: "Block rate is {{ $value | humanizePercentage }}. May indicate misconfigured policy or attack."
+
+  # =========================================================================
+  # Alerts: Backup Health
+  # =========================================================================
+  - name: aegisrun-alerts-backup
+    rules:
+
+      - alert: AegisRunBackupMissing
+        expr: |
+          time() - aegisrun_backup_last_success_timestamp > 7200
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "No successful backup in 2+ hours"
+          description: "Last successful backup was {{ $value | humanizeDuration }} ago. RPO is at risk."
+          runbook_url: "https://docs.aegisrun.dev/runbooks/backup-restore"
+
+      - alert: AegisRunBackupSizeDrop
+        expr: |
+          aegisrun_backup_size_bytes < (aegisrun_backup_size_bytes offset 1d) * 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Backup size dropped >50% vs yesterday"
+          description: "Backup file is unusually small. May indicate truncated dump or data loss."

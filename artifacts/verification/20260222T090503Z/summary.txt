@@ -1,0 +1,26 @@
+﻿AegisRun verification evidence
+Timestamp (UTC): 20260222T090503Z
+Repository: C:\Users\scsar\Desktop\aegis2
+
+[START] api-tests
+[CMD] Set-Location api; go test ./...
+[PASS] api-tests
+Log: C:\Users\scsar\Desktop\aegis2\artifacts\verification\20260222T090503Z\api-tests.log
+
+[START] verifier-tests
+[CMD] Set-Location verifier; go test ./...
+[PASS] verifier-tests
+Log: C:\Users\scsar\Desktop\aegis2\artifacts\verification\20260222T090503Z\verifier-tests.log
+
+[START] ui-tests
+[CMD] Set-Location ui; npm run test -- --run
+[PASS] ui-tests
+Log: C:\Users\scsar\Desktop\aegis2\artifacts\verification\20260222T090503Z\ui-tests.log
+
+[START] typescript-sdk-tests
+[CMD] Set-Location sdk/typescript; npm test -- --run
+[PASS] typescript-sdk-tests
+Log: C:\Users\scsar\Desktop\aegis2\artifacts\verification\20260222T090503Z\typescript-sdk-tests.log
+
+All verification checks passed.
+Evidence directory: C:\Users\scsar\Desktop\aegis2\artifacts\verification\20260222T090503Z

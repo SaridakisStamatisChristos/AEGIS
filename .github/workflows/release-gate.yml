@@ -1,0 +1,745 @@
+name: Release Gate
+
+# Runs the full CI + security + e2e + load validation pipeline required
+# before any production release. Must pass before a release tag is cut.
+#
+# Trigger: manually via workflow_dispatch on a release/* branch, or
+# automatically on pushes to release/* branches.
+
+on:
+  push:
+    branches:
+      - 'release/*'
+  workflow_dispatch:
+    inputs:
+      run_load_tests:
+        description: 'Run load test scenario'
+        required: false
+        default: 'baseline'
+        type: choice
+        options:
+          - smoke
+          - baseline
+          - stress
+          - soak
+      skip_e2e:
+        description: 'Skip E2E tests (emergency only)'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: '1.23'
+  NODE_VERSION: '20'
+  PYTHON_VERSION: '3.11'
+
+permissions:
+  contents: read
+  security-events: write
+  packages: read
+  id-token: write
+  attestations: write
+
+jobs:
+  # ==========================================================================
+  # Phase 1: Build Verification
+  # ==========================================================================
+  build-api:
+    name: "Build: API"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: api/go.sum
+      - name: Build API binary
+        working-directory: ./api
+        run: |
+          go build -ldflags="-s -w -X main.version=${{ github.sha }}" -o bin/server cmd/server/main.go
+          echo "Binary size: $(stat -c%s bin/server) bytes"
+      - name: Vet
+        working-directory: ./api
+        run: go vet ./...
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-binary
+          path: api/bin/server
+          retention-days: 7
+
+  build-verifier:
+    name: "Build: Verifier"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: verifier/go.sum
+      - name: Build verifier binaries
+        working-directory: ./verifier
+        run: |
+          GOOS=linux GOARCH=amd64 go build -o bin/aegis-verify-linux-amd64 ./cmd/verify/main.go
+          GOOS=darwin GOARCH=arm64 go build -o bin/aegis-verify-darwin-arm64 ./cmd/verify/main.go
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: verifier-binaries
+          path: verifier/bin/
+          retention-days: 7
+
+  build-ui:
+    name: "Build: UI"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+        working-directory: ./ui
+      - run: npm run build
+        working-directory: ./ui
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-dist
+          path: ui/dist
+          retention-days: 7
+
+  build-docker:
+    name: "Build: Docker Images"
+    runs-on: ubuntu-latest
+    needs: [build-api, build-ui]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api
+          push: false
+          load: true
+          tags: aegisrun/api:release-gate
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Build UI image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./ui
+          push: false
+          load: true
+          tags: aegisrun/ui:release-gate
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Verify images start
+        run: |
+          docker run --rm -d --name api-check aegisrun/api:release-gate || exit 1
+          sleep 3
+          docker logs api-check
+          docker stop api-check
+
+  # ==========================================================================
+  # Phase 2: Full Test Suite
+  # ==========================================================================
+  api-unit-tests:
+    name: "Test: API Unit"
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: aegisrun
+          POSTGRES_PASSWORD: aegisrun
+          POSTGRES_DB: aegisrun_test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: api/go.sum
+      - name: Run migrations
+        working-directory: ./api
+        env:
+          DATABASE_URL: postgres://aegisrun:aegisrun@localhost:5432/aegisrun_test?sslmode=disable
+        run: |
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+          migrate -path migrations -database "$DATABASE_URL" up
+      - name: Run unit tests with race detection
+        working-directory: ./api
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: aegisrun
+          DB_PASSWORD: aegisrun
+          DB_NAME: aegisrun_test
+          DB_SSL_MODE: disable
+        run: go test -v -race -count=1 -coverprofile=coverage.out ./...
+      - name: Check coverage threshold
+        working-directory: ./api
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total coverage: ${COVERAGE}%"
+          echo "coverage=${COVERAGE}" >> $GITHUB_OUTPUT
+          # Fail if coverage drops below 60%
+          if (( $(echo "$COVERAGE < 60" | bc -l) )); then
+            echo "::error::Coverage ${COVERAGE}% is below 60% threshold"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: api-coverage
+          path: api/coverage.out
+
+  verifier-tests:
+    name: "Test: Verifier"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: verifier/go.sum
+      - run: go test -v -race -count=1 ./...
+        working-directory: ./verifier
+
+  python-sdk-tests:
+    name: "Test: Python SDK"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install & test
+        working-directory: ./sdk/python
+        run: |
+          pip install -e ".[dev]"
+          ruff check .
+          black --check .
+          mypy aegisrun
+          pytest -v --cov=aegisrun --cov-fail-under=50
+
+  typescript-sdk-tests:
+    name: "Test: TypeScript SDK"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: sdk/typescript/package-lock.json
+      - working-directory: ./sdk/typescript
+        run: |
+          npm ci
+          npm run lint
+          npm test
+          npm run build
+
+  ui-tests:
+    name: "Test: UI"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+      - working-directory: ./ui
+        run: |
+          npm ci
+          npm run lint
+          npm run test -- --run
+          npm run build
+
+  # ==========================================================================
+  # Phase 3: Security Scanning (reuse existing workflow checks)
+  # ==========================================================================
+  security-go:
+    name: "Security: Go"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Gosec
+        uses: securego/gosec@master
+        with:
+          args: '-no-fail -fmt sarif -out gosec.sarif ./api/... ./verifier/...'
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          cd api && govulncheck ./...
+          cd ../verifier && govulncheck ./...
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: gosec.sarif
+          category: release-gate-gosec
+
+  security-deps:
+    name: "Security: Dependencies"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy scan (API)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: './api'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+      - name: Trivy scan (UI)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: './ui'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+      - name: Trivy scan (Verifier)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: './verifier'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+      - name: Trivy scan (Python SDK)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: './sdk/python'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+      - name: Trivy scan (TypeScript SDK)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: './sdk/typescript'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+  security-secrets:
+    name: "Security: Secrets"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  security-containers:
+    name: "Security: Container Images"
+    runs-on: ubuntu-latest
+    needs: [build-docker]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api
+          load: true
+          tags: aegisrun/api:scan
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'aegisrun/api:scan'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+  security-sbom:
+    name: "Security: SBOM"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+      - name: Generate API SBOM
+        run: syft dir:./api -o spdx-json=sbom-api.spdx.json
+      - name: Generate UI SBOM
+        run: syft dir:./ui -o spdx-json=sbom-ui.spdx.json
+      - name: Generate Python SDK SBOM
+        run: syft dir:./sdk/python -o spdx-json=sbom-sdk-python.spdx.json
+      - name: Generate TypeScript SDK SBOM
+        run: syft dir:./sdk/typescript -o spdx-json=sbom-sdk-typescript.spdx.json
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-release-gate
+          path: |
+            sbom-api.spdx.json
+            sbom-ui.spdx.json
+            sbom-sdk-python.spdx.json
+            sbom-sdk-typescript.spdx.json
+          retention-days: 30
+
+  security-provenance:
+    name: "Security: Provenance Attestation"
+    runs-on: ubuntu-latest
+    needs: [build-api, build-verifier, build-ui]
+    steps:
+      - name: Download API binary
+        uses: actions/download-artifact@v4
+        with:
+          name: api-binary
+          path: artifacts/api
+      - name: Download verifier binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: verifier-binaries
+          path: artifacts/verifier
+      - name: Download UI build
+        uses: actions/download-artifact@v4
+        with:
+          name: ui-dist
+          path: artifacts/ui
+      - name: Attest API binary provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: artifacts/api/server
+      - name: Attest verifier binary provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: artifacts/verifier/**
+      - name: Attest UI build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: artifacts/ui/**
+
+  # ==========================================================================
+  # Phase 4: E2E Tests
+  # ==========================================================================
+  e2e-tests:
+    name: "E2E: Full Flow"
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_e2e }}
+    needs: [build-docker, api-unit-tests]
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: aegisrun
+          POSTGRES_PASSWORD: aegisrun
+          POSTGRES_DB: aegisrun
+        ports: [5432:5432]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Run migrations
+        env:
+          DATABASE_URL: postgres://aegisrun:aegisrun@localhost:5432/aegisrun?sslmode=disable
+        run: |
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+          migrate -path api/migrations -database "$DATABASE_URL" up
+      - name: Run E2E tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: aegisrun
+          DB_PASSWORD: aegisrun
+          DB_NAME: aegisrun
+          DB_SSL_MODE: disable
+          AEGISRUN_BASE_URL: http://localhost:8080
+        run: |
+          cd tests/e2e
+          go test -v -timeout 10m -count=1 ./...
+
+  migration-roundtrip:
+    name: "E2E: Migration Roundtrip"
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: aegisrun
+          POSTGRES_PASSWORD: aegisrun
+          POSTGRES_DB: aegisrun_migration_test
+        ports: [5432:5432]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: Install migrate
+        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+      - name: Up → Down → Up roundtrip
+        env:
+          DATABASE_URL: postgres://aegisrun:aegisrun@localhost:5432/aegisrun_migration_test?sslmode=disable
+        run: |
+          migrate -path api/migrations -database "$DATABASE_URL" up
+          migrate -path api/migrations -database "$DATABASE_URL" down -all
+          migrate -path api/migrations -database "$DATABASE_URL" up
+          echo "Migration roundtrip successful"
+
+  # ==========================================================================
+  # Phase 5: Load Tests
+  # ==========================================================================
+  load-test:
+    name: "Load: ${{ inputs.run_load_tests || 'smoke' }}"
+    runs-on: ubuntu-latest
+    needs: [e2e-tests]
+    if: ${{ !inputs.skip_e2e }}
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: aegisrun
+          POSTGRES_PASSWORD: aegisrun
+          POSTGRES_DB: aegisrun
+        ports: [5432:5432]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Run migrations & start API
+        env:
+          DATABASE_URL: postgres://aegisrun:aegisrun@localhost:5432/aegisrun?sslmode=disable
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_USER: aegisrun
+          DB_PASSWORD: aegisrun
+          DB_NAME: aegisrun
+          DB_SSL_MODE: disable
+          APP_ENV: staging
+          OIDC_ISSUER: mock
+          PORT: 8080
+        run: |
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+          migrate -path api/migrations -database "$DATABASE_URL" up
+          cd api && go run cmd/server/main.go &
+          sleep 5
+          curl -sf http://localhost:8080/health || exit 1
+      - name: Install Locust
+        run: pip install locust pyyaml
+      - name: Run load test
+        working-directory: ./tests/load
+        run: |
+          SCENARIO="${{ inputs.run_load_tests || 'smoke' }}"
+          echo "Running load test scenario: ${SCENARIO}"
+          locust -f locustfile.py \
+            --host http://localhost:8080 \
+            --headless \
+            --users 10 \
+            --spawn-rate 2 \
+            --run-time 60s \
+            --csv=results \
+            --html=report.html \
+            2>&1 | tee load-test.log
+      - name: Enforce load thresholds
+        run: |
+          python3 ops/scripts/validate-load-thresholds.py \
+            --csv tests/load/results_stats.csv \
+            --max-error-rate 5 \
+            --max-p95-ms 500 \
+            --max-p99-ms 2000 \
+            --min-rps 1 \
+            --out tests/load/load-threshold-summary.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-test-results
+          path: |
+            tests/load/results*.csv
+            tests/load/report.html
+            tests/load/load-test.log
+            tests/load/load-threshold-summary.json
+          retention-days: 30
+
+  canary-health-gate:
+    name: "Ops: Canary Health + Rollback Gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify canary scripts are executable and valid
+        run: |
+          bash -n ops/scripts/canary-deploy.sh
+          bash -n ops/scripts/canary-health-score.sh
+      - name: Validate healthy canary scoring path
+        run: |
+          ERROR_RATE=0.5 P99_LATENCY_MS=180 POD_RESTARTS=0 READINESS_OK=true \
+            MAX_ERROR_RATE=5 MAX_P99_LATENCY_MS=2000 MAX_POD_RESTARTS=2 \
+            bash ops/scripts/canary-health-score.sh > /tmp/canary-healthy.json
+          grep -q '"rollback_required": false' /tmp/canary-healthy.json
+      - name: Validate rollback trigger scoring path
+        run: |
+          if ERROR_RATE=7 P99_LATENCY_MS=2500 POD_RESTARTS=3 READINESS_OK=false \
+            MAX_ERROR_RATE=5 MAX_P99_LATENCY_MS=2000 MAX_POD_RESTARTS=2 \
+            bash ops/scripts/canary-health-score.sh > /tmp/canary-fail.json; then
+            echo "::error::Expected rollback-required scoring to fail"
+            exit 1
+          fi
+          grep -q '"rollback_required": true' /tmp/canary-fail.json
+
+  ops-drill-cadence:
+    name: "Ops: Drill Cadence Evidence"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify drill evidence recency and coverage
+        run: |
+          bash ops/scripts/verify-drill-cadence.sh artifacts/drills
+
+  slo-escalation-gate:
+    name: "Ops: SLO Burn-Rate Escalation Wiring"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify burn-rate alert rule exists
+        run: |
+          grep -q 'alert: AegisRunErrorBudgetBurn' ops/prometheus/rules/aegisrun-alerts.yml
+      - name: Verify alertmanager on-call route exists
+        run: |
+          grep -q 'AegisRunErrorBudgetBurn' ops/prometheus/alertmanager.yml
+          grep -q 'aegisrun-oncall-primary' ops/prometheus/alertmanager.yml
+          grep -q 'aegisrun-oncall-secondary' ops/prometheus/alertmanager.yml
+          grep -q 'aegisrun-escalation' ops/prometheus/alertmanager.yml
+      - name: Verify escalation policy documentation
+        run: |
+          test -f docs/ONCALL_ESCALATION_POLICY.md
+          grep -q 'AegisRunErrorBudgetBurn' docs/ONCALL_ESCALATION_POLICY.md
+
+  # ==========================================================================
+  # Phase 6: Release Gate Verdict
+  # ==========================================================================
+  release-gate-verdict:
+    name: "RELEASE GATE VERDICT"
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - build-api
+      - build-verifier
+      - build-ui
+      - build-docker
+      - api-unit-tests
+      - verifier-tests
+      - python-sdk-tests
+      - typescript-sdk-tests
+      - ui-tests
+      - security-go
+      - security-deps
+      - security-secrets
+      - security-containers
+      - security-sbom
+      - security-provenance
+      - e2e-tests
+      - migration-roundtrip
+      - load-test
+      - canary-health-gate
+      - ops-drill-cadence
+      - slo-escalation-gate
+    steps:
+      - name: Evaluate gate
+        run: |
+          echo "## Release Gate Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          PASS=true
+
+          check_job() {
+            local name="$1"
+            local result="$2"
+            local required="$3"
+            if [ "$result" = "success" ] || [ "$result" = "skipped" ]; then
+              echo "| $name | ✅ $result |" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "| $name | ❌ $result |" >> $GITHUB_STEP_SUMMARY
+              if [ "$required" = "true" ]; then
+                PASS=false
+              fi
+            fi
+          }
+
+          # Build checks (all required)
+          check_job "Build: API"       "${{ needs.build-api.result }}"       "true"
+          check_job "Build: Verifier"  "${{ needs.build-verifier.result }}"  "true"
+          check_job "Build: UI"        "${{ needs.build-ui.result }}"        "true"
+          check_job "Build: Docker"    "${{ needs.build-docker.result }}"    "true"
+
+          # Test checks (all required)
+          check_job "Test: API Unit"         "${{ needs.api-unit-tests.result }}"      "true"
+          check_job "Test: Verifier"         "${{ needs.verifier-tests.result }}"      "true"
+          check_job "Test: Python SDK"       "${{ needs.python-sdk-tests.result }}"    "true"
+          check_job "Test: TypeScript SDK"   "${{ needs.typescript-sdk-tests.result }}" "true"
+          check_job "Test: UI"               "${{ needs.ui-tests.result }}"            "true"
+
+          # Security checks (all required)
+          check_job "Security: Go"           "${{ needs.security-go.result }}"         "true"
+          check_job "Security: Deps"         "${{ needs.security-deps.result }}"       "true"
+          check_job "Security: Secrets"      "${{ needs.security-secrets.result }}"    "true"
+          check_job "Security: Containers"   "${{ needs.security-containers.result }}" "true"
+          check_job "Security: SBOM"         "${{ needs.security-sbom.result }}"       "true"
+          check_job "Security: Provenance"   "${{ needs.security-provenance.result }}" "true"
+
+          # E2E (required unless skipped)
+          check_job "E2E: Full Flow"         "${{ needs.e2e-tests.result }}"           "true"
+          check_job "E2E: Migration"         "${{ needs.migration-roundtrip.result }}" "true"
+
+          # Load test (required unless skipped)
+          check_job "Load Test"              "${{ needs.load-test.result }}"           "true"
+
+          # Operations / SLO gate checks
+          check_job "Canary Health Gate"     "${{ needs.canary-health-gate.result }}"  "true"
+          check_job "Drill Cadence"          "${{ needs.ops-drill-cadence.result }}"   "true"
+          check_job "SLO Escalation Wiring"  "${{ needs.slo-escalation-gate.result }}" "true"
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$PASS" = "true" ]; then
+            echo "### ✅ RELEASE GATE: **PASSED**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "All required checks passed. This branch is cleared for release tag." >> $GITHUB_STEP_SUMMARY
+            echo "release_gate=passed" >> $GITHUB_OUTPUT
+          else
+            echo "### ❌ RELEASE GATE: **FAILED**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "One or more required checks failed. Do NOT cut a release tag." >> $GITHUB_STEP_SUMMARY
+            echo "release_gate=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi

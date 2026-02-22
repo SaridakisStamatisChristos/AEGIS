@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegisrun-config
+  namespace: aegisrun
+  labels:
+    app.kubernetes.io/name: aegisrun
+data:
+  # Application environment
+  APP_ENV: "production"
+
+  # Database configuration
+  DB_HOST: "aegisrun-postgres"
+  DB_PORT: "5432"
+  DB_NAME: "aegisrun"
+  DB_SSL_MODE: "require"
+  DB_MAX_OPEN_CONNS: "25"
+  DB_MAX_IDLE_CONNS: "5"
+  
+  # API configuration
+  PORT: "8080"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  
+  # Feature flags
+  ENABLE_METRICS: "true"
+  ENABLE_TRACING: "true"
+  ENABLE_REPLAY: "true"
+  
+  # CORS
+  CORS_ALLOW_ORIGIN: "https://aegisrun.example.com"
+
+  # Rate limiting
+  RATE_LIMIT_RPS: "100"
+  RATE_LIMIT_BURST: "200"

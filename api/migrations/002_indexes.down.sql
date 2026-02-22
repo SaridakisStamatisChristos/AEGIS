@@ -1,0 +1,10 @@
+DROP INDEX IF EXISTS idx_audit_search;
+DROP INDEX IF EXISTS idx_jobs_dequeue;
+DROP INDEX IF EXISTS idx_approvals_pending;
+DROP INDEX IF EXISTS idx_steps_hierarchy;
+DROP INDEX IF EXISTS idx_runs_active;
+DROP INDEX IF EXISTS idx_runs_counters;
+DROP INDEX IF EXISTS idx_tool_calls_analytics;
+DROP INDEX IF EXISTS idx_events_chain_traversal;
+DROP INDEX IF EXISTS idx_policies_org_name_deployed;
+DROP INDEX IF EXISTS idx_runs_org_status_created;
