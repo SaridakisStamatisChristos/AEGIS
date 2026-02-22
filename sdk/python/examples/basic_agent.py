@@ -41,9 +41,9 @@ def main():
         fn=gather_info,
     )
 
-    print(
-        f"Gathered info: {info.get('status_code') if isinstance(info, dict) else info}"
-    )
+    # Log only non-sensitive summary information about the response
+    status_code = info.get("status_code") if isinstance(info, dict) else None
+    print(f"Gathered info (status_code={status_code if status_code is not None else 'unknown'}; response details not logged)")
 
     # Step 2: Process data
     def process_data(step):
