@@ -582,6 +582,7 @@ jobs:
             --run-time 60s \
             --csv=results \
             --html=report.html \
+            AuditQueryUser \
             2>&1 | tee load-test.log
       - name: Enforce load thresholds
         run: |
