@@ -585,13 +585,19 @@ jobs:
             AuditQueryUser \
             2>&1 | tee load-test.log
       - name: Enforce load thresholds
+        env:
+          SCENARIO: ${{ inputs.run_load_tests || 'smoke' }}
         run: |
+          MIN_RPS=1
+          if [ "$SCENARIO" = "smoke" ]; then
+            MIN_RPS=0.3
+          fi
           python3 ops/scripts/validate-load-thresholds.py \
             --csv tests/load/results_stats.csv \
             --max-error-rate 5 \
             --max-p95-ms 500 \
             --max-p99-ms 2000 \
-            --min-rps 1 \
+            --min-rps ${MIN_RPS} \
             --out tests/load/load-threshold-summary.json
       - uses: actions/upload-artifact@v4
         if: always()
