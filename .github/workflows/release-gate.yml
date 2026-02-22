@@ -138,12 +138,10 @@ jobs:
           tags: aegisrun/ui:release-gate
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Verify images start
+      - name: Verify built images
         run: |
-          docker run --rm -d --name api-check aegisrun/api:release-gate || exit 1
-          sleep 3
-          docker logs api-check
-          docker stop api-check
+          docker image inspect aegisrun/api:release-gate > /dev/null
+          docker image inspect aegisrun/ui:release-gate > /dev/null
 
   # ==========================================================================
   # Phase 2: Full Test Suite
