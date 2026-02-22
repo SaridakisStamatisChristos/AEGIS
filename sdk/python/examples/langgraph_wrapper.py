@@ -1,7 +1,9 @@
 """LangGraph-style wrapper for AegisRun"""
 
-from typing import Callable, Dict, Any, TypedDict
+from typing import Any, Callable, Dict, TypedDict
+
 from aegisrun import Run, Step
+
 
 class State(TypedDict):
     """Agent state"""
@@ -9,6 +11,7 @@ class State(TypedDict):
     messages: list
     current_step: str
     data: Dict[str, Any]
+
 
 class AegisGraph:
     """LangGraph-like wrapper with AegisRun enforcement"""
@@ -32,12 +35,11 @@ class AegisGraph:
         """Compile the graph"""
         return CompiledGraph(self.run, self.nodes, self.edges)
 
+
 class CompiledGraph:
     """Compiled graph ready for execution"""
 
-    def __init__(
-        self, run: Run, nodes: Dict[str, Callable], edges: Dict[str, str]
-    ):
+    def __init__(self, run: Run, nodes: Dict[str, Callable], edges: Dict[str, str]):
         self.run = run
         self.nodes = nodes
         self.edges = edges
@@ -66,6 +68,7 @@ class CompiledGraph:
                 break
 
         return state
+
 
 def example_usage():
     """Example LangGraph-style usage"""
@@ -107,13 +110,12 @@ def example_usage():
 
     # Compile and run
     compiled = graph.compile()
-    final_state = compiled.invoke(
-        State(messages=[], current_step="start", data={})
-    )
+    final_state = compiled.invoke(State(messages=[], current_step="start", data={}))
 
     print(f"Final state: {final_state}")
 
     run.end(outcome={"state": final_state})
+
 
 if __name__ == "__main__":
     example_usage()

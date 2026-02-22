@@ -1,14 +1,15 @@
 """Run management"""
 
-from typing import Optional, Dict, Any, Callable
 from datetime import datetime, timezone
+from typing import Any, Callable, Dict, Optional
+
 from ulid import ULID
 
 from .client import AegisRunClient
-from .step import Step
-from .types import RunStatus, RunCounters
-from .offline_buffer import OfflineBuffer
 from .events import EventEmitter
+from .offline_buffer import OfflineBuffer
+from .step import Step
+from .types import RunCounters, RunStatus
 
 
 class Run:
@@ -62,7 +63,7 @@ class Run:
                 self.emitter.emit_run_started(self.run_id, self.metadata)
 
             return self
-        except Exception as e:
+        except Exception:
             if self.offline_mode:
                 # Generate local run_id
                 self.run_id = str(ULID())
@@ -110,9 +111,7 @@ class Run:
             step.complete()
             # Emit step.ended telemetry event
             if self.emitter:
-                self.emitter.emit_step_ended(
-                    self.run_id, step.step_id, "completed"
-                )
+                self.emitter.emit_step_ended(self.run_id, step.step_id, "completed")
             self.counters.steps += 1
             return result
         except Exception as e:

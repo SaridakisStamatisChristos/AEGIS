@@ -3,10 +3,11 @@
 Matches the Go backend API /api/v1 response shapes.
 """
 
-from enum import Enum
-from typing import Any, Dict, Optional, List
-from pydantic import BaseModel
 from datetime import datetime
+from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel
 
 
 class RunStatus(str, Enum):
@@ -33,6 +34,7 @@ class PolicyStatus(str, Enum):
 
 class PolicyAction(str, Enum):
     """Policy action values used in a Decision."""
+
     ALLOW = "allow"
     WARN = "warn"
     REDACT = "redact"
@@ -43,6 +45,7 @@ class PolicyAction(str, Enum):
 
 class Decision(BaseModel):
     """Gateway decision returned by the API as a nested object."""
+
     action: PolicyAction = PolicyAction.ALLOW
     policy_rule_id: str = ""
     reason: str = ""
@@ -51,12 +54,14 @@ class Decision(BaseModel):
 
 class PolicyRef(BaseModel):
     """Structured policy reference (policy_id + version)."""
+
     policy_id: str
     version: str
 
 
 class SchemaRef(BaseModel):
     """Structured schema reference."""
+
     schema_id: str
     version: str
 

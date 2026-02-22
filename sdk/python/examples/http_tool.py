@@ -1,7 +1,7 @@
 """HTTP tool usage example with error handling"""
 
 from aegisrun import AegisRunClient, Run
-from aegisrun.tool_call import ToolCallBlockedError, ToolCallExecutionError
+from aegisrun.tool_call import ToolCallBlockedError
 
 
 def main():
@@ -81,6 +81,7 @@ def main():
     print("\nRun completed!")
     print(f"Total tool calls: {run.counters.tool_calls}")
     print(f"Blocks: {run.counters.blocks}")
+
 
 if __name__ == "__main__":
     main()

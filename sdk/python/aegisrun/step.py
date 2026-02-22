@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Dict, Any, Optional, TYPE_CHECKING
-from datetime import datetime, timezone
 import logging
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
 from ulid import ULID
 
 from .client import AegisRunClient
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from .run import Run
 
 logger = logging.getLogger(__name__)
+
 
 class Step:
     """Represents a single step within a run"""

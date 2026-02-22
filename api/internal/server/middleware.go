@@ -11,7 +11,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/propagation"
-	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
@@ -242,9 +241,9 @@ func TracingMiddleware() func(http.Handler) http.Handler {
 			ctx, span := tracer.Start(ctx, spanName,
 				trace.WithSpanKind(trace.SpanKindServer),
 				trace.WithAttributes(
-					semconv.HTTPMethod(r.Method),
-					semconv.HTTPTarget(r.URL.Path),
-					semconv.HTTPScheme(scheme(r)),
+					attribute.String("http.request.method", r.Method),
+					attribute.String("url.path", r.URL.Path),
+					attribute.String("url.scheme", scheme(r)),
 					attribute.String("http.request_id", middleware.GetReqID(r.Context())),
 				),
 			)
@@ -259,7 +258,7 @@ func TracingMiddleware() func(http.Handler) http.Handler {
 			next.ServeHTTP(ww, r.WithContext(ctx))
 
 			span.SetAttributes(
-				semconv.HTTPStatusCode(ww.Status()),
+				attribute.Int("http.response.status_code", ww.Status()),
 				attribute.Int("http.response_bytes", ww.BytesWritten()),
 			)
 			if ww.Status() >= 500 {

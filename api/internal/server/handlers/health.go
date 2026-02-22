@@ -27,7 +27,9 @@ func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 type ReadyResponse struct {
@@ -54,11 +56,15 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	if allHealthy {
 		resp.Status = "ready"
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	} else {
 		resp.Status = "not ready"
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+		}
 	}
 }

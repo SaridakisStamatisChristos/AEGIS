@@ -133,10 +133,8 @@ func (e *Evaluator) checkBudgets(budgets contracts.Budgets, counters *contracts.
 	}
 
 	// Check wall clock budget (if start time in metadata)
-	if budgets.MaxWallClockSec != nil {
-		// Implementation note: This would require start_time in metadata
-		// For now, we skip this check in the evaluator
-	}
+	// Implementation note: This would require start_time in metadata.
+	// The evaluator intentionally skips this check for now.
 
 	return nil
 }

@@ -1,10 +1,11 @@
 """Offline event buffering"""
 
 import json
-import os
-from typing import Dict, Any, List, Optional
 from pathlib import Path
+from typing import Any, Dict, List, Optional
+
 from .client import AegisRunClient
+
 
 class OfflineBuffer:
     """Buffers events when server is unavailable"""
@@ -110,6 +111,7 @@ class OfflineBuffer:
                 json.dump(self.events, f, indent=2)
         except OSError as exc:
             import warnings
+
             warnings.warn(
                 f"OfflineBuffer._persist() failed to write {buffer_file}: {exc}",
                 stacklevel=2,

@@ -1,8 +1,9 @@
 """Event emission for telemetry"""
 
 import logging
-from typing import Dict, Any, Optional
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+
 from .client import AegisRunClient
 
 logger = logging.getLogger(__name__)
@@ -58,18 +59,14 @@ class EventEmitter:
         """Emit run.started event"""
         self._emit(run_id, "run.started", {"metadata": metadata})
 
-    def emit_run_ended(
-        self, run_id: str, outcome: Optional[Dict[str, Any]]
-    ) -> None:
+    def emit_run_ended(self, run_id: str, outcome: Optional[Dict[str, Any]]) -> None:
         """Emit run.ended event"""
         payload: Dict[str, Any] = {}
         if outcome is not None:
             payload["outcome"] = outcome
         self._emit(run_id, "run.ended", payload)
 
-    def emit_step_started(
-        self, run_id: str, step_id: str, name: str
-    ) -> None:
+    def emit_step_started(self, run_id: str, step_id: str, name: str) -> None:
         """Emit step.started event"""
         self._emit(
             run_id,

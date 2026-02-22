@@ -64,14 +64,16 @@ func (h *GatewayHandler) Execute(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
+		if err := json.NewEncoder(w).Encode(map[string]string{
 			"error": "gateway execution failed",
-		})
+		}); err != nil {
+			h.logger.Error("failed to encode gateway error response", zap.Error(err))
+		}
 		return
 	}
 
 	// Determine HTTP status from the policy decision action
-	statusCode := http.StatusOK
+	var statusCode int
 	switch resp.Decision.Action {
 	case contracts.ActionAllow, contracts.ActionWarn, contracts.ActionRedact:
 		statusCode = http.StatusOK
@@ -85,5 +87,7 @@ func (h *GatewayHandler) Execute(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode gateway response", zap.Error(err))
+	}
 }

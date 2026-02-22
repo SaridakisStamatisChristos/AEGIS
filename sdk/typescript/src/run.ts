@@ -7,7 +7,6 @@ import { AegisRunClient } from './client';
 import { Step } from './step';
 import { RunStatus, RunCounters } from './types';
 import { OfflineBuffer } from './offlineBuffer';
-import { ToolCallBlockedError } from './toolCall';
 
 export interface RunConfig {
   client: AegisRunClient;

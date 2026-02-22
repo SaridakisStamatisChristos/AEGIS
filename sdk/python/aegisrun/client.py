@@ -1,9 +1,10 @@
 """AegisRun client for API communication"""
 
+from typing import Any, Dict, List, Optional
+
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from typing import Optional, Dict, Any, List
 
 DEFAULT_TIMEOUT = 30  # seconds
 
@@ -103,17 +104,13 @@ class AegisRunClient:
 
     def get_run(self, run_id: str) -> Dict[str, Any]:
         """Get run details"""
-        response = self.session.get(
-            f"{self.base_url}/api/v1/runs/{run_id}/"
-        )
+        response = self.session.get(f"{self.base_url}/api/v1/runs/{run_id}/")
         response.raise_for_status()
         return response.json()
 
     def list_steps(self, run_id: str) -> List[Dict[str, Any]]:
         """List steps for a run"""
-        response = self.session.get(
-            f"{self.base_url}/api/v1/runs/{run_id}/steps"
-        )
+        response = self.session.get(f"{self.base_url}/api/v1/runs/{run_id}/steps")
         response.raise_for_status()
         data = response.json()
         if isinstance(data, list):
@@ -122,9 +119,7 @@ class AegisRunClient:
 
     def list_events(self, run_id: str) -> List[Dict[str, Any]]:
         """List events for a run"""
-        response = self.session.get(
-            f"{self.base_url}/api/v1/runs/{run_id}/events"
-        )
+        response = self.session.get(f"{self.base_url}/api/v1/runs/{run_id}/events")
         response.raise_for_status()
         data = response.json()
         if isinstance(data, list):
@@ -165,9 +160,7 @@ class AegisRunClient:
 
     # ── Policies ──────────────────────────────────────────────────────
 
-    def list_policies(
-        self, status: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    def list_policies(self, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """List policies"""
         params: Dict[str, Any] = {}
         if status is not None:
@@ -232,9 +225,7 @@ class AegisRunClient:
 
     def delete_policy(self, policy_id: str) -> None:
         """Soft-delete (deprecate) a policy"""
-        response = self.session.delete(
-            f"{self.base_url}/api/v1/policies/{policy_id}/"
-        )
+        response = self.session.delete(f"{self.base_url}/api/v1/policies/{policy_id}/")
         response.raise_for_status()
 
     def activate_policy(self, policy_id: str) -> Dict[str, Any]:
@@ -276,9 +267,7 @@ class AegisRunClient:
 
     def get_approval(self, approval_id: str) -> Dict[str, Any]:
         """Get a single approval"""
-        response = self.session.get(
-            f"{self.base_url}/api/v1/approvals/{approval_id}"
-        )
+        response = self.session.get(f"{self.base_url}/api/v1/approvals/{approval_id}")
         response.raise_for_status()
         return response.json()
 

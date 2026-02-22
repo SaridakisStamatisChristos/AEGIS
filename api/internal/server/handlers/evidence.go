@@ -113,5 +113,7 @@ func (h *EvidenceHandler) VerifyBundle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode verify bundle response", zap.Error(err))
+	}
 }

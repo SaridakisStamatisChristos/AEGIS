@@ -4,17 +4,18 @@ Uses unittest.mock to avoid hitting a real server.
 """
 
 import json
+from unittest.mock import MagicMock, PropertyMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
 from requests import HTTPError, Response, Session
 from requests.adapters import HTTPAdapter
 
-from aegisrun.client import AegisRunClient, _TimeoutRetryAdapter, DEFAULT_TIMEOUT
-
+from aegisrun.client import DEFAULT_TIMEOUT, AegisRunClient, _TimeoutRetryAdapter
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_response(status_code: int = 200, json_data=None, content: bytes = b""):
     """Create a realistic mock Response."""
@@ -25,9 +26,7 @@ def _mock_response(status_code: int = 200, json_data=None, content: bytes = b"")
     resp.content = content
     resp.text = content.decode("utf-8", errors="replace") if content else ""
     resp.headers = {"Content-Type": "application/json"}
-    resp.raise_for_status.side_effect = (
-        None if resp.ok else HTTPError(response=resp)
-    )
+    resp.raise_for_status.side_effect = None if resp.ok else HTTPError(response=resp)
     # Support iter_content for streaming
     resp.iter_content.return_value = iter([content] if content else [])
     return resp
@@ -36,6 +35,7 @@ def _mock_response(status_code: int = 200, json_data=None, content: bytes = b"")
 # ---------------------------------------------------------------------------
 # Construction & defaults
 # ---------------------------------------------------------------------------
+
 
 class TestClientConstruction:
 
@@ -76,6 +76,7 @@ class TestClientConstruction:
 # _TimeoutRetryAdapter
 # ---------------------------------------------------------------------------
 
+
 class TestTimeoutRetryAdapter:
 
     def test_default_timeout_assigned(self):
@@ -90,6 +91,7 @@ class TestTimeoutRetryAdapter:
 # ---------------------------------------------------------------------------
 # Runs CRUD
 # ---------------------------------------------------------------------------
+
 
 class TestCreateRun:
 
@@ -117,7 +119,8 @@ class TestCreateRun:
         )
         c = AegisRunClient()
         result = c.create_run(
-            "pol-1", "v1",
+            "pol-1",
+            "v1",
             metadata={"env": "prod"},
             parent_run_id="parent-1",
             state_schema_ref={"schema_id": "s1", "version": "v1"},
@@ -227,7 +230,8 @@ class TestSubmitEvent:
         )
         c = AegisRunClient()
         c.submit_event(
-            "run-1", "step.started",
+            "run-1",
+            "step.started",
             payload={"step_id": "s1"},
             timestamp="2024-01-01T00:00:00Z",
         )
@@ -240,6 +244,7 @@ class TestSubmitEvent:
 # ---------------------------------------------------------------------------
 # Policies CRUD
 # ---------------------------------------------------------------------------
+
 
 class TestPolicies:
 
@@ -317,6 +322,7 @@ class TestPolicies:
 # Approvals
 # ---------------------------------------------------------------------------
 
+
 class TestApprovals:
 
     @patch.object(Session, "get")
@@ -367,6 +373,7 @@ class TestApprovals:
 # Gateway
 # ---------------------------------------------------------------------------
 
+
 class TestGateway:
 
     @patch.object(Session, "post")
@@ -406,7 +413,8 @@ class TestGateway:
         c = AegisRunClient()
         with pytest.raises(HTTPError):
             c.execute_tool_call(
-                run_id="r1", step_id="s1",
+                run_id="r1",
+                step_id="s1",
                 tool_name="http_request",
                 args={"url": "http://169.254.169.254/"},
                 state_vector={},
@@ -416,6 +424,7 @@ class TestGateway:
 # ---------------------------------------------------------------------------
 # Evidence
 # ---------------------------------------------------------------------------
+
 
 class TestEvidence:
 
@@ -444,6 +453,7 @@ class TestEvidence:
 # ---------------------------------------------------------------------------
 # Error handling / edge cases
 # ---------------------------------------------------------------------------
+
 
 class TestErrorHandling:
 

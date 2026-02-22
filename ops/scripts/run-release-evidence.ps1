@@ -51,8 +51,8 @@ function Invoke-Gh([string[]]$Args) {
     & $script:GhExe @Args
 }
 
-function Run-GhJson([string]$Args) {
-    $raw = Invoke-Gh ($Args -split ' ')
+function Run-GhJson([string[]]$Args) {
+    $raw = Invoke-Gh $Args
     return $raw | ConvertFrom-Json
 }
 
@@ -82,7 +82,7 @@ function Resolve-EvidenceDir([string]$RepoRoot, [string]$InputDir) {
 }
 
 function Get-WorkflowRun([string]$Workflow, [string]$Branch) {
-    $runs = Run-GhJson "run list --workflow $Workflow --branch $Branch --limit 1 --json databaseId,url,status,conclusion,createdAt,updatedAt"
+    $runs = Run-GhJson @('run', 'list', '--workflow', $Workflow, '--branch', $Branch, '--limit', '1', '--json', 'databaseId,url,status,conclusion,createdAt,updatedAt')
     if (-not $runs -or $runs.Count -eq 0) {
         throw "No run found for workflow '$Workflow' on branch '$Branch'"
     }
@@ -179,7 +179,7 @@ if (-not $SkipTagPush) {
     }
 
     Start-Sleep -Seconds 8
-    $releaseRun = Run-GhJson "run list --workflow release.yml --limit 1 --json databaseId,url,status,conclusion,createdAt,updatedAt"
+    $releaseRun = Run-GhJson @('run', 'list', '--workflow', 'release.yml', '--limit', '1', '--json', 'databaseId,url,status,conclusion,createdAt,updatedAt')
     if (-not $releaseRun -or $releaseRun.Count -eq 0) {
         throw 'No release.yml run found after pushing tag.'
     }
@@ -191,7 +191,7 @@ if (-not $SkipTagPush) {
         throw "release.yml run failed: $($releaseRun.url)"
     }
 
-    $releaseRunFinal = (Run-GhJson "run list --workflow release.yml --limit 1 --json databaseId,url,status,conclusion,createdAt,updatedAt")[0]
+    $releaseRunFinal = (Run-GhJson @('run', 'list', '--workflow', 'release.yml', '--limit', '1', '--json', 'databaseId,url,status,conclusion,createdAt,updatedAt'))[0]
     Update-EvidenceSection -EvidencePath $evidencePath -Section 'release' -Run $releaseRunFinal
 }
 
