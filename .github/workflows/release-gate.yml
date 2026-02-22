@@ -548,9 +548,22 @@ jobs:
         run: |
           go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
           migrate -path api/migrations -database "$DATABASE_URL" up
-          cd api && go run cmd/server/main.go &
-          sleep 5
-          curl -sf http://localhost:8080/health || exit 1
+          cd api
+          go run ./cmd/server/main.go > /tmp/aegis-api.log 2>&1 &
+          API_PID=$!
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/health > /dev/null; then
+              echo "API is healthy"
+              break
+            fi
+            sleep 2
+          done
+          if ! curl -sf http://localhost:8080/health > /dev/null; then
+            echo "::error::API failed health check during load-test startup"
+            cat /tmp/aegis-api.log || true
+            kill "$API_PID" || true
+            exit 1
+          fi
       - name: Install Locust
         run: pip install locust pyyaml
       - name: Run load test
