@@ -576,6 +576,7 @@ jobs:
           locust -f locustfile.py \
             --host http://localhost:8080 \
             --headless \
+            --tags list \
             --users 10 \
             --spawn-rate 2 \
             --run-time 60s \
