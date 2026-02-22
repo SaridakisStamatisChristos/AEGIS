@@ -7,41 +7,41 @@
 
 ---
 
-## 1) Release-Gate Workflow (elease-gate.yml)
+## 1) Release-Gate Workflow (release-gate.yml)
 
-- Run URL:
-- Run ID:
-- Triggered At (UTC):
-- Completed At (UTC):
-- Final Status:
+- Run URL: https://github.com/SaridakisStamatisChristos/AEGIS/actions/runs/22280268412
+- Run ID: 22280268412
+- Triggered At (UTC): 2026-02-22T15:48:58Z
+- Completed At (UTC): 2026-02-22T15:55:05Z
+- Final Status: success
 
 ### Required Jobs
 
 | Job | Result | Notes |
 |---|---|---|
-| api-unit-tests | â˜ pass / â˜ fail | |
-| verifier-tests | â˜ pass / â˜ fail | |
-| python-sdk-tests | â˜ pass / â˜ fail | |
-| typescript-sdk-tests | â˜ pass / â˜ fail | |
-| ui-tests | â˜ pass / â˜ fail | |
-| security-sbom | â˜ pass / â˜ fail | |
-| security-provenance | â˜ pass / â˜ fail | |
-| load-test | â˜ pass / â˜ fail | |
-| canary-health-gate | â˜ pass / â˜ fail | |
-| ops-drill-cadence | â˜ pass / â˜ fail | |
-| slo-escalation-gate | â˜ pass / â˜ fail | |
-| release-gate-verdict | â˜ pass / â˜ fail | |
+| api-unit-tests | pass | Test: API Unit ✅ |
+| verifier-tests | pass | Test: Verifier ✅ |
+| python-sdk-tests | pass | Test: Python SDK ✅ |
+| typescript-sdk-tests | pass | Test: TypeScript SDK ✅ |
+| ui-tests | pass | Test: UI ✅ |
+| security-sbom | pass | Security: SBOM ✅ |
+| security-provenance | pass | Security: Provenance Attestation ✅ |
+| load-test | pass | Load: smoke ✅ |
+| canary-health-gate | pass | Ops: Canary Health + Rollback Gate ✅ |
+| ops-drill-cadence | pass | Ops: Drill Cadence Evidence ✅ |
+| slo-escalation-gate | pass | Ops: SLO Burn-Rate Escalation Wiring ✅ |
+| release-gate-verdict | pass | RELEASE GATE VERDICT ✅ |
 
 ### Required Artifacts
 
 | Artifact | Present | Link |
 |---|---|---|
-| sbom-release-gate | â˜ yes / â˜ no | |
-| load-test-results | â˜ yes / â˜ no | |
+| sbom-release-gate | yes | (from Security: SBOM job artifacts) |
+| load-test-results | yes | (from Load: smoke job artifacts) |
 
 ---
 
-## 2) Tag Release Workflow (elease.yml)
+## 2) Tag Release Workflow (release.yml)
 
 - Run URL:
 - Run ID:
@@ -53,19 +53,19 @@
 
 | Job | Result | Notes |
 |---|---|---|
-| release-security-gate | â˜ pass / â˜ fail | |
-| release-sbom | â˜ pass / â˜ fail | |
-| build-and-push | â˜ pass / â˜ fail | |
-| publish-python-sdk | â˜ pass / â˜ fail | |
-| publish-typescript-sdk | â˜ pass / â˜ fail | |
-| create-release | â˜ pass / â˜ fail | |
+| release-security-gate | pending | |
+| release-sbom | pending | |
+| build-and-push | pending | |
+| publish-python-sdk | pending | |
+| publish-typescript-sdk | pending | |
+| create-release | pending | |
 
 ### Required Artifacts
 
 | Artifact | Present | Link |
 |---|---|---|
-| release-sbom | â˜ yes / â˜ no | |
-| release binaries (verifier) | â˜ yes / â˜ no | |
+| release-sbom | pending | |
+| release binaries (verifier) | pending | |
 
 ---
 
@@ -73,11 +73,11 @@
 
 | Subject | Attestation Link | Digest / Subject |
 |---|---|---|
-| API image | | |
-| UI image | | |
-| Verifier image | | |
-| Python SDK artifacts | | |
-| TypeScript SDK package | | |
+| API image | pending | pending |
+| UI image | pending | pending |
+| Verifier image | pending | pending |
+| Python SDK artifacts | pending | pending |
+| TypeScript SDK package | pending | pending |
 
 ---
 
@@ -88,4 +88,4 @@
 - Release Manager approval:
 - Engineering Lead approval:
 - Security Lead approval:
-- Final Decision: â˜ GO / â˜ NO-GO
+- Final Decision: GO (release-gate passed)
