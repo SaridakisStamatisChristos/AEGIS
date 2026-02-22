@@ -568,6 +568,8 @@ jobs:
         run: pip install locust pyyaml
       - name: Run load test
         working-directory: ./tests/load
+        env:
+          AEGISRUN_API_TOKEN: ${{ secrets.LOAD_TEST_API_TOKEN }}
         run: |
           SCENARIO="${{ inputs.run_load_tests || 'smoke' }}"
           echo "Running load test scenario: ${SCENARIO}"

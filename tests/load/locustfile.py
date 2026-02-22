@@ -17,7 +17,7 @@ import yaml
 from locust import HttpUser, LoadTestShape, between, events, task, tag
 
 # Configuration
-API_TOKEN = os.getenv("AEGISRUN_API_TOKEN", "test-token")
+API_TOKEN = os.getenv("AEGISRUN_API_TOKEN") or "test-token"
 POLICY_ID = os.getenv("AEGISRUN_POLICY_ID", "production-standard")
 POLICY_VERSION = os.getenv("AEGISRUN_POLICY_VERSION", "v1")
 DETERMINISTIC_MODE = os.getenv("AEGISRUN_LOAD_DETERMINISTIC", "false").lower() in {"1", "true", "yes", "on"}
@@ -109,8 +109,10 @@ class BaseAegisRunUser(HttpUser):
     def create_run(self, metadata: Optional[Dict] = None) -> Optional[str]:
         """Create a new run and return run_id."""
         payload = {
-            "policy_id": POLICY_ID,
-            "policy_version": POLICY_VERSION,
+            "policy_ref": {
+                "policy_id": POLICY_ID,
+                "version": POLICY_VERSION,
+            },
             "metadata": metadata or {
                 "load_test": True,
                 "timestamp": self._timestamp_value(),
@@ -118,8 +120,8 @@ class BaseAegisRunUser(HttpUser):
             }
         }
 
-        with self.client.post("/api/v1/runs", json=payload, catch_response=True) as resp:
-            if resp.status_code == 200:
+        with self.client.post("/api/v1/runs/", json=payload, catch_response=True) as resp:
+            if resp.status_code == 201:
                 data = resp.json()
                 run_id = data.get("run_id")
                 if run_id:
@@ -151,12 +153,12 @@ class BaseAegisRunUser(HttpUser):
         }
 
         with self.client.post(
-            "/api/v1/gateway/tool-call",
+            "/api/v1/gateway/execute",
             json=payload,
             catch_response=True,
-            name=f"/api/v1/gateway/tool-call [{tool_name}]",
+            name=f"/api/v1/gateway/execute [{tool_name}]",
         ) as resp:
-            if resp.status_code == 200:
+            if resp.status_code in {200, 202, 403}:
                 data = resp.json()
                 decision = data.get("decision", {})
                 action = decision.get("action")
@@ -264,13 +266,13 @@ class StandardUser(BaseAegisRunUser):
             return
 
         with self.client.get(
-            f"/api/v1/runs/{run_id}/timeline",
+            f"/api/v1/runs/{run_id}/steps",
             catch_response=True,
         ) as resp:
             if resp.status_code == 200:
                 resp.success()
             else:
-                resp.failure(f"Get timeline failed: {resp.status_code}")
+                resp.failure(f"Get steps failed: {resp.status_code}")
 
     @task(5)
     @tag("create", "run")
@@ -458,9 +460,9 @@ class EvidenceExportUser(BaseAegisRunUser):
 
         # Export bundle
         with self.client.get(
-            f"/api/v1/evidence/{run_id}/bundle",
+            f"/api/v1/evidence/runs/{run_id}/bundle",
             catch_response=True,
-            name="/api/v1/evidence/{run_id}/bundle",
+            name="/api/v1/evidence/runs/{run_id}/bundle",
         ) as resp:
             if resp.status_code == 200:
                 content = resp.content
