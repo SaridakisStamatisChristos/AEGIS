@@ -37,7 +37,9 @@ class TestClientContract:
 
         client = AegisRunClient(base_url="http://localhost:8080", api_token="token")
 
-        created = client.create_run("policy-a", "v1", metadata={"source": "contract-test"})
+        created = client.create_run(
+            "policy-a", "v1", metadata={"source": "contract-test"}
+        )
         assert mock_post.call_args.args[0].endswith("/api/v1/runs/")
         create_body = mock_post.call_args.kwargs["json"]
         assert create_body == {
@@ -47,7 +49,9 @@ class TestClientContract:
         assert created["run_id"] == run_payload["run_id"]
 
         fetched = client.get_run(run_payload["run_id"])
-        assert mock_get.call_args.args[0].endswith(f"/api/v1/runs/{run_payload['run_id']}/")
+        assert mock_get.call_args.args[0].endswith(
+            f"/api/v1/runs/{run_payload['run_id']}/"
+        )
         assert fetched["run_id"] == run_payload["run_id"]
 
     @patch.object(Session, "get")
@@ -100,11 +104,19 @@ class TestClientContract:
 
         steps = client.list_steps(run["run_id"])
         assert steps == [step]
-        assert mock_get.call_args_list[1].args[0].endswith(f"/api/v1/runs/{run['run_id']}/steps")
+        assert (
+            mock_get.call_args_list[1]
+            .args[0]
+            .endswith(f"/api/v1/runs/{run['run_id']}/steps")
+        )
 
         events = client.list_events(run["run_id"])
         assert events == [event]
-        assert mock_get.call_args_list[2].args[0].endswith(f"/api/v1/runs/{run['run_id']}/events")
+        assert (
+            mock_get.call_args_list[2]
+            .args[0]
+            .endswith(f"/api/v1/runs/{run['run_id']}/events")
+        )
 
     @patch.object(Session, "post")
     def test_gateway_execute_route_and_decision_payload_contract(self, mock_post):

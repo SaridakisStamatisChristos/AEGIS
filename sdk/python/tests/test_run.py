@@ -6,24 +6,23 @@ All HTTP calls are mocked via unittest.mock.
 import json
 import os
 import shutil
-import pytest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, call, patch
+
+import pytest
 
 from aegisrun.client import AegisRunClient
-from aegisrun.run import Run
-from aegisrun.step import Step
-from aegisrun.types import (
-    RunStatus, StepStatus, PolicyAction, Decision, RunCounters
-)
 from aegisrun.events import EventEmitter
 from aegisrun.offline_buffer import OfflineBuffer
+from aegisrun.run import Run
+from aegisrun.step import Step
 from aegisrun.tool_call import ToolCall, ToolCallBlockedError, ToolCallExecutionError
-
+from aegisrun.types import Decision, PolicyAction, RunCounters, RunStatus, StepStatus
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_client() -> MagicMock:
     """Return a mock client with stubbed methods."""
@@ -49,6 +48,7 @@ def _make_client() -> MagicMock:
 # ===================================================================
 # Run
 # ===================================================================
+
 
 class TestRunConstruction:
 
@@ -181,7 +181,9 @@ class TestRunStep:
         run.start()
 
         with pytest.raises(ValueError, match="boom"):
-            run.step("bad-step", {}, lambda s: (_ for _ in ()).throw(ValueError("boom")))
+            run.step(
+                "bad-step", {}, lambda s: (_ for _ in ()).throw(ValueError("boom"))
+            )
 
     def test_step_increments_seq_no(self):
         client = _make_client()
@@ -258,6 +260,7 @@ class TestRunFlushOffline:
 # ===================================================================
 # Step
 # ===================================================================
+
 
 class TestStep:
 
@@ -363,6 +366,7 @@ class TestStep:
 # ToolCall
 # ===================================================================
 
+
 class TestToolCall:
 
     def test_execute_allowed(self):
@@ -408,6 +412,7 @@ class TestToolCall:
 # ===================================================================
 # EventEmitter
 # ===================================================================
+
 
 class TestEventEmitter:
 
@@ -480,6 +485,7 @@ class TestEventEmitter:
 # ===================================================================
 # OfflineBuffer
 # ===================================================================
+
 
 class TestOfflineBuffer:
 
@@ -585,6 +591,7 @@ class TestOfflineBuffer:
 # ===================================================================
 # Types
 # ===================================================================
+
 
 class TestTypes:
 

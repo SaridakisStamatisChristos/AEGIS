@@ -1,6 +1,7 @@
 """Tool call execution"""
 
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 from .client import AegisRunClient
 from .types import Decision, PolicyAction
 
@@ -80,4 +81,5 @@ class ToolCallBlockedError(Exception):
 
 class ToolCallExecutionError(Exception):
     """Raised when tool execution fails"""
+
     pass

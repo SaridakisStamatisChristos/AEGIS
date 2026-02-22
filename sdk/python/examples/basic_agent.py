@@ -41,7 +41,8 @@ def main():
         fn=gather_info,
     )
 
-    print(f"Gathered info: {info.get('status_code') if isinstance(info, dict) else info}")
+    # Log that information was gathered without logging any response details
+    print("Gathered info (response details not logged)")
 
     # Step 2: Process data
     def process_data(step):
@@ -63,6 +64,7 @@ def main():
     print(f"Run completed successfully: {run.run_id}")
     print(f"Steps: {run.counters.steps}")
     print(f"Tool calls: {run.counters.tool_calls}")
+
 
 if __name__ == "__main__":
     main()

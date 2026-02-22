@@ -99,13 +99,15 @@ func (h *ApprovalsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(struct {
+	if err := json.NewEncoder(w).Encode(struct {
 		Approvals []ApprovalResponse `json:"approvals"`
 		Total     int                `json:"total"`
 	}{
 		Approvals: resp,
 		Total:     len(resp),
-	})
+	}); err != nil {
+		h.logger.Error("failed to encode approvals response", zap.Error(err))
+	}
 }
 
 // Get returns a single approval by its ID.
@@ -135,7 +137,9 @@ func (h *ApprovalsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(approvalToResponse(approval))
+	if err := json.NewEncoder(w).Encode(approvalToResponse(approval)); err != nil {
+		h.logger.Error("failed to encode approval response", zap.Error(err))
+	}
 }
 
 // Approve records an "approved" decision for a policy version.
@@ -238,7 +242,9 @@ func (h *ApprovalsHandler) Approve(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(approvalToResponse(approval))
+	if err := json.NewEncoder(w).Encode(approvalToResponse(approval)); err != nil {
+		h.logger.Error("failed to encode approval response", zap.Error(err))
+	}
 }
 
 // Reject records a "rejected" decision for a policy version.
@@ -318,5 +324,7 @@ func (h *ApprovalsHandler) Reject(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(approvalToResponse(approval))
+	if err := json.NewEncoder(w).Encode(approvalToResponse(approval)); err != nil {
+		h.logger.Error("failed to encode approval response", zap.Error(err))
+	}
 }

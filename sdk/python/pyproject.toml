@@ -33,13 +33,26 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.21.0",
     "black>=23.0.0",
     "mypy>=1.7.0",
     "ruff>=0.1.0",
+    "types-requests>=2.31.0",
 ]
 
 [project.urls]
 Homepage = "https://github.com/aegisrun/aegisrun"
 Documentation = "https://docs.aegisrun.io"
 Repository = "https://github.com/aegisrun/aegisrun"
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["F401", "F841"]
+"examples/*.py" = ["F401"]

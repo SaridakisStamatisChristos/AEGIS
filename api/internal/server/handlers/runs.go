@@ -174,7 +174,10 @@ func (h *RunsHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode runs response", zap.Error(err))
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // Create handles POST /runs — creates a new run.
@@ -221,7 +224,10 @@ func (h *RunsHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(runToResponse(run))
+	if err := json.NewEncoder(w).Encode(runToResponse(run)); err != nil {
+		h.logger.Error("failed to encode create run response", zap.Error(err))
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // Get handles GET /runs/{runID} — returns a single run.
@@ -256,7 +262,10 @@ func (h *RunsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(runToResponse(run))
+	if err := json.NewEncoder(w).Encode(runToResponse(run)); err != nil {
+		h.logger.Error("failed to encode run response", zap.Error(err))
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // ListSteps handles GET /runs/{runID}/steps
@@ -306,7 +315,10 @@ func (h *RunsHandler) ListSteps(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode steps response", zap.Error(err))
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // ListEvents handles GET /runs/{runID}/events
@@ -356,7 +368,10 @@ func (h *RunsHandler) ListEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		h.logger.Error("failed to encode events response", zap.Error(err))
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // SubmitEventRequest is the JSON body for POST /runs/{runID}/events.
@@ -481,7 +496,10 @@ func (h *RunsHandler) SubmitEvent(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(eventToResponse(created))
+	if err := json.NewEncoder(w).Encode(eventToResponse(created)); err != nil {
+		h.logger.Error("failed to encode submit event response", zap.Error(err))
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
+	}
 }
 
 // ---------------------------------------------------------------------------

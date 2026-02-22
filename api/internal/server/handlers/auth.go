@@ -108,10 +108,12 @@ func (h *AuthHandler) Callback(w http.ResponseWriter, r *http.Request) {
 		zap.String("state", state))
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"message": "authentication successful",
 		"token":   token,
-	})
+	}); err != nil {
+		h.logger.Error("failed to encode auth callback response", zap.Error(err))
+	}
 }
 
 // consumeState validates and removes a CSRF state token.
