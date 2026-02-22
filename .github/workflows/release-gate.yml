@@ -470,8 +470,7 @@ jobs:
           DB_SSL_MODE: disable
           AEGISRUN_BASE_URL: http://localhost:8080
         run: |
-          cd tests/e2e
-          go test -v -timeout 10m -count=1 ./...
+          go test -v -timeout 10m -count=1 ./tests/e2e/...
 
   migration-roundtrip:
     name: "E2E: Migration Roundtrip"
