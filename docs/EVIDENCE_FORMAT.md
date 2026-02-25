@@ -217,7 +217,7 @@ func BuildMerkleRoot(items []HashableItem) string {
 ```json
 {
   "algorithm": "Ed25519",
-  "key_id": "01JQZX3K2FGH9VWBCDKEYID001",
+  "key_id": "01JQZX0000000000000000EXMP",
   "key_fingerprint": "sha256:keyfingerprint...",
   "signed_at": "2026-02-03T12:34:56.789Z",
   "message_hash": "sha256:manifestsummary...",

@@ -1037,7 +1037,7 @@ func TestRedaction(t *testing.T) {
 			Args: map[string]interface{}{
 				"url":    "https://api.example.com/data",
 				"method": "POST",
-				"body":   `{"password": "super-secret-123", "api_key": "sk_live_abc123"}`,
+				"body":   `{"password": "super-secret-123", "api_key": "sk_live_abc123"}`, // gitleaks:allow
 			},
 			StateVector: map[string]interface{}{},
 			Executor:    "builtin",

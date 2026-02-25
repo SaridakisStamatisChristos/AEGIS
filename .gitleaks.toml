@@ -1,0 +1,20 @@
+# Gitleaks configuration for AEGIS repository.
+# This file suppresses known false positives from historical commits that
+# contain mocked/dev-only values (not real secrets).
+#
+# Security scanning remains strict for all new code: only specific historical
+# commit SHAs are allowlisted, not broad file paths or rule disables.
+
+title = "AEGIS Gitleaks Configuration"
+
+[allowlist]
+  description = "Historical commits containing mocked dev/test secrets (not real)"
+  # 869bd835: initial commit adding seed scripts, docs, and e2e tests with
+  #   dummy data in ops/scripts/seed-dev-data.sh, docs/CONTRACTS.md,
+  #   and tests/e2e/full_flow_test.go.
+  # 26b03a19: merge commit whose tree includes docs/EVIDENCE_FORMAT.md and
+  #   tests/e2e/full_flow_test.go with example placeholder values.
+  commits = [
+    "869bd835a8718a1db58cd0715eeaea033c237c27",
+    "26b03a1908bd6708d12d106829345fa88986f774",
+  ]
