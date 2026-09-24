@@ -69,7 +69,11 @@ func main() {
 	if err != nil {
 		logger.Fatal("failed to connect to database", zap.Error(err))
 	}
-	defer dbStore.Close()
+	defer func() {
+		if err := dbStore.Close(); err != nil {
+			logger.Error("failed to close database", zap.Error(err))
+		}
+	}()
 
 	// Initialize stores
 	runStore := store.NewRunStore(dbStore)

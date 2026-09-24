@@ -108,6 +108,15 @@ jobs:
         uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            api/go.sum
+            verifier/go.sum
+
+      - name: Verify API module files are tidy
+        working-directory: ./api
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
 
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0

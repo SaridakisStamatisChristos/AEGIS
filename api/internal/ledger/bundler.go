@@ -40,7 +40,7 @@ func NewBundler(
 }
 
 // CreateBundle creates a ZIP archive with all evidence for a run
-func (b *Bundler) CreateBundle(ctx context.Context, runID string, w io.Writer) error {
+func (b *Bundler) CreateBundle(ctx context.Context, runID string, w io.Writer) (err error) {
 	// Get run
 	run, err := b.runStore.Get(ctx, runID)
 	if err != nil {
@@ -77,7 +77,11 @@ func (b *Bundler) CreateBundle(ctx context.Context, runID string, w io.Writer) e
 
 	// Create bundle
 	zipWriter := zip.NewWriter(w)
-	defer zipWriter.Close()
+	defer func() {
+		if closeErr := zipWriter.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("finalize bundle: %w", closeErr)
+		}
+	}()
 
 	// 1. Write manifest.json
 	manifest := contracts.EvidenceBundleManifest{

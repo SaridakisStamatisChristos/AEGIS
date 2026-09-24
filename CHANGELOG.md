@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 - Replaced spoofable `chi/middleware.RealIP` handling with explicit, fail-closed client-IP trust for logging and rate limiting.
 - Upgraded `go-chi/chi/v5` to 5.3.2 and `go-jose/go-jose/v3` to 3.0.5.
+- Upgraded OpenTelemetry to 1.44.0 and gRPC to 1.83.2 to clear reachable 2026 vulnerability findings.
 - Refreshed CI/security runtimes and actions to Node 24-compatible versions, pinned security scanners, and moved Go validation/builds to 1.27.1.
 
 ## [1.0.0] - 2026-02-21

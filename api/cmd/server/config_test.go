@@ -18,7 +18,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	}
 	for _, key := range envVars {
 		t.Setenv(key, "")
-		os.Unsetenv(key)
+		_ = os.Unsetenv(key)
 	}
 
 	cfg := loadConfig()
@@ -277,7 +277,7 @@ func TestLoadConfig_NewFieldDefaults(t *testing.T) {
 	// Clear to get defaults
 	for _, key := range []string{"OIDC_AUDIENCE", "MAX_TOKEN_AGE_SECONDS"} {
 		t.Setenv(key, "")
-		os.Unsetenv(key)
+		_ = os.Unsetenv(key)
 	}
 
 	cfg := loadConfig()
