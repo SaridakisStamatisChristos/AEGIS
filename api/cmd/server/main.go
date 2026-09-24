@@ -69,7 +69,11 @@ func main() {
 	if err != nil {
 		logger.Fatal("failed to connect to database", zap.Error(err))
 	}
-	defer dbStore.Close()
+	defer func() {
+		if err := dbStore.Close(); err != nil {
+			logger.Error("failed to close database", zap.Error(err))
+		}
+	}()
 
 	// Initialize stores
 	runStore := store.NewRunStore(dbStore)
@@ -141,10 +145,12 @@ func main() {
 
 	// Create server
 	srv := server.New(server.Config{
-		Port:            cfg.Port,
-		CORSAllowOrigin: cfg.CORSAllowOrigin,
-		RateLimitRPS:    cfg.RateLimitRPS,
-		RateLimitBurst:  cfg.RateLimitBurst,
+		Port:              cfg.Port,
+		CORSAllowOrigin:   cfg.CORSAllowOrigin,
+		RateLimitRPS:      cfg.RateLimitRPS,
+		RateLimitBurst:    cfg.RateLimitBurst,
+		ClientIPMode:      cfg.ClientIPMode,
+		TrustedProxyCount: cfg.TrustedProxyCount,
 	}, server.Dependencies{
 		Store:         dbStore,
 		RunStore:      runStore,
@@ -212,9 +218,11 @@ type Config struct {
 	OIDCRedirectURL  string
 	OIDCAudience     string
 	MaxTokenAgeSec   int
-	CORSAllowOrigin  string
-	RateLimitRPS     float64
-	RateLimitBurst   int
+	CORSAllowOrigin   string
+	RateLimitRPS      float64
+	RateLimitBurst    int
+	ClientIPMode      string
+	TrustedProxyCount int
 }
 
 func loadConfig() Config {
@@ -233,9 +241,11 @@ func loadConfig() Config {
 		OIDCRedirectURL:  getEnv("OIDC_REDIRECT_URL", "http://localhost:8080/auth/callback"),
 		OIDCAudience:     getEnv("OIDC_AUDIENCE", ""),
 		MaxTokenAgeSec:   getEnvInt("MAX_TOKEN_AGE_SECONDS", 3600),
-		CORSAllowOrigin:  getEnv("CORS_ALLOW_ORIGIN", "http://localhost:5173"),
-		RateLimitRPS:     getEnvFloat("RATE_LIMIT_RPS", 100),
-		RateLimitBurst:   getEnvInt("RATE_LIMIT_BURST", 200),
+		CORSAllowOrigin:   getEnv("CORS_ALLOW_ORIGIN", "http://localhost:5173"),
+		RateLimitRPS:      getEnvFloat("RATE_LIMIT_RPS", 100),
+		RateLimitBurst:    getEnvInt("RATE_LIMIT_BURST", 200),
+		ClientIPMode:      getEnv("CLIENT_IP_MODE", "remote_addr"),
+		TrustedProxyCount: getEnvInt("TRUSTED_PROXY_COUNT", 0),
 	}
 }
 
@@ -316,6 +326,20 @@ func validateConfig(cfg Config, logger *zap.Logger) {
 	// Rate limiting should be enabled
 	if cfg.RateLimitRPS <= 0 {
 		fatal = append(fatal, "RATE_LIMIT_RPS must be > 0 in production")
+	}
+
+	// Client IP trust must be explicit. Header-derived client IPs are safe only
+	// when the exact number of trusted reverse proxies is configured.
+	clientIPMode := strings.ToLower(strings.TrimSpace(cfg.ClientIPMode))
+	switch clientIPMode {
+	case "remote_addr":
+		// Safe for direct deployments; forwarding headers are ignored.
+	case "xff_trusted_proxies":
+		if cfg.TrustedProxyCount <= 0 {
+			fatal = append(fatal, "TRUSTED_PROXY_COUNT must be > 0 when CLIENT_IP_MODE=xff_trusted_proxies")
+		}
+	default:
+		fatal = append(fatal, "CLIENT_IP_MODE must be one of: remote_addr, xff_trusted_proxies")
 	}
 
 	if len(fatal) > 0 {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -13,11 +14,11 @@ func TestLoadConfig_Defaults(t *testing.T) {
 		"APP_ENV", "PORT", "DB_HOST", "DB_PORT", "DB_USER", "DB_PASSWORD",
 		"DB_NAME", "DB_SSL_MODE", "OIDC_ISSUER", "OIDC_CLIENT_ID",
 		"OIDC_CLIENT_SECRET", "OIDC_REDIRECT_URL", "CORS_ALLOW_ORIGIN",
-		"RATE_LIMIT_RPS", "RATE_LIMIT_BURST",
+		"RATE_LIMIT_RPS", "RATE_LIMIT_BURST", "CLIENT_IP_MODE", "TRUSTED_PROXY_COUNT",
 	}
 	for _, key := range envVars {
 		t.Setenv(key, "")
-		os.Unsetenv(key)
+		_ = os.Unsetenv(key)
 	}
 
 	cfg := loadConfig()
@@ -46,6 +47,12 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	if cfg.RateLimitBurst != 200 {
 		t.Errorf("expected RateLimitBurst=200, got %d", cfg.RateLimitBurst)
 	}
+	if cfg.ClientIPMode != "remote_addr" {
+		t.Errorf("expected ClientIPMode=remote_addr, got %q", cfg.ClientIPMode)
+	}
+	if cfg.TrustedProxyCount != 0 {
+		t.Errorf("expected TrustedProxyCount=0, got %d", cfg.TrustedProxyCount)
+	}
 }
 
 func TestLoadConfig_EnvOverrides(t *testing.T) {
@@ -56,6 +63,8 @@ func TestLoadConfig_EnvOverrides(t *testing.T) {
 	t.Setenv("CORS_ALLOW_ORIGIN", "https://app.example.com")
 	t.Setenv("RATE_LIMIT_RPS", "50")
 	t.Setenv("RATE_LIMIT_BURST", "100")
+	t.Setenv("CLIENT_IP_MODE", "xff_trusted_proxies")
+	t.Setenv("TRUSTED_PROXY_COUNT", "1")
 
 	cfg := loadConfig()
 
@@ -79,6 +88,12 @@ func TestLoadConfig_EnvOverrides(t *testing.T) {
 	}
 	if cfg.RateLimitBurst != 100 {
 		t.Errorf("expected RateLimitBurst=100, got %d", cfg.RateLimitBurst)
+	}
+	if cfg.ClientIPMode != "xff_trusted_proxies" {
+		t.Errorf("expected ClientIPMode=xff_trusted_proxies, got %q", cfg.ClientIPMode)
+	}
+	if cfg.TrustedProxyCount != 1 {
+		t.Errorf("expected TrustedProxyCount=1, got %d", cfg.TrustedProxyCount)
 	}
 }
 
@@ -164,6 +179,23 @@ func TestValidateConfig_ProductionRequiresRateLimit(t *testing.T) {
 	assertContainsIssue(t, issues, "RATE_LIMIT_RPS")
 }
 
+func TestValidateConfig_ProductionRequiresTrustedProxyCount(t *testing.T) {
+	cfg := validProductionConfig()
+	cfg.ClientIPMode = "xff_trusted_proxies"
+	cfg.TrustedProxyCount = 0
+
+	issues := collectValidationIssues(cfg)
+	assertContainsIssue(t, issues, "TRUSTED_PROXY_COUNT")
+}
+
+func TestValidateConfig_ProductionRejectsUnknownClientIPMode(t *testing.T) {
+	cfg := validProductionConfig()
+	cfg.ClientIPMode = "trust_everything"
+
+	issues := collectValidationIssues(cfg)
+	assertContainsIssue(t, issues, "CLIENT_IP_MODE")
+}
+
 func TestValidateConfig_ProductionRequiresOIDCClientID(t *testing.T) {
 	cfg := validProductionConfig()
 	cfg.OIDCClientID = ""
@@ -245,7 +277,7 @@ func TestLoadConfig_NewFieldDefaults(t *testing.T) {
 	// Clear to get defaults
 	for _, key := range []string{"OIDC_AUDIENCE", "MAX_TOKEN_AGE_SECONDS"} {
 		t.Setenv(key, "")
-		os.Unsetenv(key)
+		_ = os.Unsetenv(key)
 	}
 
 	cfg := loadConfig()
@@ -277,8 +309,10 @@ func validProductionConfig() Config {
 		OIDCAudience:     "aegisrun-prod",
 		MaxTokenAgeSec:   3600,
 		CORSAllowOrigin:  "https://app.example.com",
-		RateLimitRPS:     100,
-		RateLimitBurst:   200,
+		RateLimitRPS:      100,
+		RateLimitBurst:    200,
+		ClientIPMode:      "xff_trusted_proxies",
+		TrustedProxyCount: 1,
 	}
 }
 
@@ -314,6 +348,16 @@ func collectValidationIssues(cfg Config) []string {
 	}
 	if cfg.RateLimitRPS <= 0 {
 		issues = append(issues, "RATE_LIMIT_RPS must be > 0 in production")
+	}
+	clientIPMode := strings.ToLower(strings.TrimSpace(cfg.ClientIPMode))
+	switch clientIPMode {
+	case "remote_addr":
+	case "xff_trusted_proxies":
+		if cfg.TrustedProxyCount <= 0 {
+			issues = append(issues, "TRUSTED_PROXY_COUNT must be > 0 when CLIENT_IP_MODE=xff_trusted_proxies")
+		}
+	default:
+		issues = append(issues, "CLIENT_IP_MODE must be one of: remote_addr, xff_trusted_proxies")
 	}
 
 	return issues

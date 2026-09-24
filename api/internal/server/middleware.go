@@ -1,8 +1,10 @@
 package server
 
 import (
+	"net"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,6 +32,7 @@ func RequestLogger(logger *zap.Logger) func(next http.Handler) http.Handler {
 					zap.Int("bytes", ww.BytesWritten()),
 					zap.Duration("duration", time.Since(start)),
 					zap.String("request_id", middleware.GetReqID(r.Context())),
+					zap.String("client_ip", ClientIP(r)),
 					zap.String("remote_addr", r.RemoteAddr),
 					zap.String("user_agent", r.UserAgent()),
 				)
@@ -128,6 +131,44 @@ func HeadersMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// ClientIPMiddleware installs one of chi's fail-closed client-IP resolvers.
+//
+// "remote_addr" ignores all forwarding headers and is the safe default for
+// direct/local deployments. "xff_trusted_proxies" is for deployments with a
+// known, fixed number of reverse proxies. It walks X-Forwarded-For from the
+// trusted edge instead of accepting attacker-controlled leftmost values.
+func ClientIPMiddleware(mode string, trustedProxyCount int) func(http.Handler) http.Handler {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "xff_trusted_proxies":
+		if trustedProxyCount > 0 {
+			return middleware.ClientIPFromXFFTrustedProxies(trustedProxyCount)
+		}
+		// Invalid proxy configuration fails closed to the TCP peer.
+		return middleware.ClientIPFromRemoteAddr
+	case "", "remote_addr":
+		return middleware.ClientIPFromRemoteAddr
+	default:
+		// Unknown modes also fail closed. Production configuration validation
+		// rejects them at startup, but this protects non-production callers too.
+		return middleware.ClientIPFromRemoteAddr
+	}
+}
+
+// ClientIP returns the normalized address established by ClientIPMiddleware.
+// The fallback preserves a stable key if a custom embedding bypasses the
+// middleware; it never consults forwarding headers.
+func ClientIP(r *http.Request) string {
+	if ip := middleware.GetClientIP(r.Context()); ip != "" {
+		return ip
+	}
+
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil && host != "" {
+		return host
+	}
+	return r.RemoteAddr
+}
+
 // ---------- Token-bucket rate limiter (per IP) ----------
 
 type ipBucket struct {
@@ -210,11 +251,7 @@ func RateLimitMiddleware(rps float64, burst int) func(http.Handler) http.Handler
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := r.RemoteAddr
-			// chi's RealIP middleware sets this header
-			if fwd := r.Header.Get("X-Real-Ip"); fwd != "" {
-				ip = fwd
-			}
+			ip := ClientIP(r)
 			if !rl.allow(ip) {
 				http.Error(w, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
 				return

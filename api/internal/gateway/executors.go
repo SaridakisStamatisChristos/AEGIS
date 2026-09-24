@@ -112,7 +112,7 @@ func (e *BuiltinExecutor) httpRequest(ctx context.Context, args map[string]inter
 	if err != nil {
 		return nil, fmt.Errorf("http request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Cap the amount we read to 1 MiB to prevent OOM
 	const maxBody = 1 << 20
@@ -220,7 +220,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, toolName string, args map[st
 	if err != nil {
 		return nil, fmt.Errorf("http executor call failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	const maxBody = 1 << 20 // 1 MiB
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
