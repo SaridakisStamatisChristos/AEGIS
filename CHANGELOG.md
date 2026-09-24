@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- Replaced spoofable `chi/middleware.RealIP` handling with explicit, fail-closed client-IP trust for logging and rate limiting.
+- Upgraded `go-chi/chi/v5` to 5.3.2 and `go-jose/go-jose/v3` to 3.0.5.
+- Refreshed CI/security runtimes and actions to Node 24-compatible versions, pinned security scanners, and moved Go validation/builds to 1.27.1.
+
 ## [1.0.0] - 2026-02-21
 
 ### Added

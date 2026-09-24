@@ -19,10 +19,12 @@ import (
 )
 
 type Config struct {
-	Port            int
-	CORSAllowOrigin string
-	RateLimitRPS    float64 // requests per second per IP (0 = disabled)
-	RateLimitBurst  int     // burst bucket size per IP
+	Port              int
+	CORSAllowOrigin   string
+	RateLimitRPS      float64 // requests per second per IP (0 = disabled)
+	RateLimitBurst    int     // burst bucket size per IP
+	ClientIPMode      string  // remote_addr or xff_trusted_proxies
+	TrustedProxyCount int     // exact number of trusted reverse-proxy hops
 }
 
 // OIDCProvider is the interface that both real and mock OIDC providers implement.
@@ -79,8 +81,9 @@ func (s *Server) setupMiddleware() {
 	// Request ID
 	s.router.Use(middleware.RequestID)
 
-	// Real IP
-	s.router.Use(middleware.RealIP)
+	// Derive the client IP using an explicit trust model. Never trust
+	// forwarding headers unless the deployment declares the proxy topology.
+	s.router.Use(ClientIPMiddleware(s.config.ClientIPMode, s.config.TrustedProxyCount))
 
 	// Distributed tracing (OpenTelemetry)
 	s.router.Use(TracingMiddleware())
