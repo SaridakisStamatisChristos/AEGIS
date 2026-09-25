@@ -73,11 +73,30 @@ jobs:
   dependency-scan:
     name: Dependency Scan
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v7
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            sdk/typescript/package-lock.json
+
+      - name: Audit UI production dependencies
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: ./ui
+
+      - name: Audit TypeScript SDK production dependencies
+        if: always()
+        run: npm audit --omit=dev --audit-level=high
+        working-directory: ./sdk/typescript
+
       - name: Run Trivy vulnerability scanner (Go API)
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
@@ -85,8 +104,10 @@ jobs:
           format: 'sarif'
           output: 'trivy-api.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Run Trivy vulnerability scanner (Verifier)
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
@@ -94,8 +115,10 @@ jobs:
           format: 'sarif'
           output: 'trivy-verifier.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Run Trivy vulnerability scanner (UI)
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
@@ -103,8 +126,10 @@ jobs:
           format: 'sarif'
           output: 'trivy-ui.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Run Trivy vulnerability scanner (Python SDK)
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
@@ -112,8 +137,10 @@ jobs:
           format: 'sarif'
           output: 'trivy-python-sdk.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Run Trivy vulnerability scanner (TypeScript SDK)
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
@@ -121,24 +148,42 @@ jobs:
           format: 'sarif'
           output: 'trivy-ts-sdk.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Upload API Trivy results
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-api.sarif
           category: trivy-api
 
       - name: Upload Verifier Trivy results
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-verifier.sarif
           category: trivy-verifier
 
       - name: Upload UI Trivy results
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-ui.sarif
           category: trivy-ui
+
+      - name: Upload Python SDK Trivy results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-python-sdk.sarif
+          category: trivy-python-sdk
+
+      - name: Upload TypeScript SDK Trivy results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-ts-sdk.sarif
+          category: trivy-typescript-sdk
 
   # ==========================================================================
   # Container Image Scanning
@@ -146,7 +191,7 @@ jobs:
   container-scan:
     name: Container Image Scan
     runs-on: ubuntu-latest
-    
+
     steps:
       - uses: actions/checkout@v7
 
@@ -162,6 +207,7 @@ jobs:
           tags: aegisrun-api:scan
 
       - name: Build UI image
+        if: always()
         uses: docker/build-push-action@v7
         with:
           context: ./ui
@@ -170,28 +216,34 @@ jobs:
           tags: aegisrun-ui:scan
 
       - name: Scan API image
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'aegisrun-api:scan'
           format: 'sarif'
           output: 'trivy-container-api.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Scan UI image
+        if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: 'aegisrun-ui:scan'
           format: 'sarif'
           output: 'trivy-container-ui.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '1'
 
       - name: Upload API container scan results
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-container-api.sarif
           category: container-api
 
       - name: Upload UI container scan results
+        if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-container-ui.sarif

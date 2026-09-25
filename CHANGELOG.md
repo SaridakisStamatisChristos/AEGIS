@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refreshed CI/security runtimes and actions to Node 24-compatible versions, pinned security scanners, and moved Go validation/builds to 1.27.1.
 - Hardened tag releases with main-branch ancestry checks, package-version/tag matching, pinned release tooling, and release-time govulncheck.
 - Added GitHub Actions workflow linting to the normal CI gate.
+- Upgraded the API runtime off EOL Alpine 3.19 and made high/critical Trivy plus production npm audits fail closed.
 
 ### Fixed
 - Removed duplicate tag-triggered publishing from the deployment workflow so `release.yml` is the sole owner of SDK publishing and GitHub Release creation.

@@ -26,7 +26,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     ./cmd/server/main.go
 
 # Runtime stage
-FROM alpine:3.19
+FROM alpine:3.24
 
 WORKDIR /app
 
