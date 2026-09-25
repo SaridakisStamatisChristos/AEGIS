@@ -1,8 +1,8 @@
 # AegisRun Postgres Backup & Restore Runbook
 
 **Owner**: Platform / SRE team  
-**Last Reviewed**: 2026-02-22  
-**Review Cadence**: Quarterly (next: 2026-05-22)
+**Last Reviewed**: 2026-09-25  
+**Review Cadence**: Quarterly (next review: 2026-12-25)
 
 ---
 

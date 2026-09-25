@@ -1,393 +1,212 @@
 # AegisRun API Reference
 
-**Version**: 1.0.0  
-**Base URL**: `https://api.aegisrun.example.com/api/v1`  
-**Last Updated**: 2026-02-03
+**Application baseline:** v1.0.1  
+**API prefix:** `/api/v1`  
+**Reviewed against:** current Go router/handlers on 2026-09-25
 
----
+This document describes the routes that are actually registered by `api/internal/server/server.go`. Older route shapes that are not present in the router are intentionally omitted.
 
 ## 1. Authentication
 
-### 1.1 Bearer Token
+All routes under `/api/v1` require:
 
-All API requests require a valid JWT token in the Authorization header:
-
-```
-Authorization: Bearer <token>
+```http
+Authorization: Bearer <OIDC access token>
 ```
 
-### 1.2 OIDC Flow
+AegisRun validates the token through its configured OIDC provider and places the authenticated user/organization in request context.
 
-```
-1. Redirect to OIDC provider
-2. User authenticates
-3. Receive authorization code
-4. Exchange for tokens at /auth/callback
-5. Use access_token for API requests
-```
+The current server does **not** expose its own `/auth/login` or `/auth/callback` endpoints. Obtain a token from the configured identity provider and present it as a bearer token.
 
----
+## 2. Public endpoints
 
-## 2. Common Response Formats
+### GET /health
 
-### 2.1 Success Response
+Liveness/status endpoint.
+
+Example:
 
 ```json
 {
-  "data": { /* resource object */ },
-  "meta": {
-    "request_id": "req_01JQZX3K2FGH9VWBCD45EFGHIJ"
+  "status": "ok",
+  "version": "1.0.1"
+}
+```
+
+The version is injected into the API binary at build time.
+
+### GET /ready
+
+Readiness endpoint. It checks database connectivity.
+
+Healthy response:
+
+```json
+{
+  "status": "ready",
+  "checks": {
+    "database": "healthy"
   }
 }
 ```
 
-### 2.2 Error Response
+When a required dependency is unavailable, the endpoint returns HTTP 503 with `status: "not ready"`.
+
+### GET /metrics
+
+Prometheus metrics endpoint.
+
+## 3. Route summary
+
+| Method | Route | Authorization |
+|---|---|---|
+| GET | `/api/v1/runs/` | run:view |
+| POST | `/api/v1/runs/` | run:create |
+| GET | `/api/v1/runs/{runID}` | run:view |
+| GET | `/api/v1/runs/{runID}/steps` | run:view |
+| GET | `/api/v1/runs/{runID}/events` | run:view |
+| POST | `/api/v1/runs/{runID}/events` | run:create |
+| GET | `/api/v1/policies/` | policy:view |
+| POST | `/api/v1/policies/` | policy:create |
+| GET | `/api/v1/policies/{policyID}` | policy:view |
+| PUT | `/api/v1/policies/{policyID}` | policy:edit |
+| DELETE | `/api/v1/policies/{policyID}` | policy:edit |
+| POST | `/api/v1/policies/{policyID}/activate` | policy:deploy |
+| POST | `/api/v1/policies/{policyID}/deactivate` | policy:deploy |
+| GET | `/api/v1/approvals/` | policy:view |
+| GET | `/api/v1/approvals/{approvalID}` | policy:view |
+| POST | `/api/v1/approvals/policies/{policyID}/approve?version=<version>` | policy:approve |
+| POST | `/api/v1/approvals/policies/{policyID}/reject?version=<version>` | policy:approve |
+| GET | `/api/v1/evidence/runs/{runID}/bundle` | evidence:export |
+| POST | `/api/v1/evidence/verify` | evidence:view |
+| POST | `/api/v1/gateway/execute` | authenticated |
+| GET | `/api/v1/stats` | run:view |
+
+Tenant-scoped handlers also verify that resources belong to the authenticated organization.
+
+## 4. Runs
+
+### POST /api/v1/runs/
+
+Create a run.
+
+Request:
 
 ```json
 {
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Invalid policy spec",
-    "details": [
-      {
-        "field": "tools[0].name",
-        "message": "Tool name is required"
-      }
-    ]
+  "policy_ref": {
+    "policy_id": "01JQZX3K2FGH9VWBCDPOLICYID",
+    "version": "v1"
   },
-  "meta": {
-    "request_id": "req_01JQZX3K2FGH9VWBCD45EFGHIJ"
-  }
-}
-```
-
-### 2.3 Pagination
-
-```json
-{
-  "data": [ /* array of resources */ ],
-  "pagination": {
-    "total": 150,
-    "page": 1,
-    "per_page": 20,
-    "total_pages": 8
-  }
-}
-```
-
----
-
-## 3. Runs
-
-### 3.1 Create Run
-
-Start a new agent run.
-
-```
-POST /runs
-```
-
-**Request Body:**
-```json
-{
-  "policy_id": "01JQZX3K2FGH9VWBCDPOLICYID",
+  "parent_run_id": null,
+  "state_schema_ref": {
+    "schema_id": "optional-schema",
+    "version": "v1"
+  },
   "metadata": {
-    "agent_name": "customer-support",
-    "user_id": "user_123",
-    "environment": "production"
+    "environment": "staging",
+    "agent": "example"
   }
 }
 ```
 
-**Response:**
+`policy_ref.policy_id` is required.
+
+Successful creation returns HTTP 201 and a direct run object containing:
+
+- `run_id`;
+- `org_id`;
+- `policy_ref`;
+- optional parent/schema references;
+- metadata;
+- timestamps;
+- status/outcome;
+- counters;
+- evidence/signature fields when available.
+
+### GET /api/v1/runs/
+
+List runs for the authenticated organization.
+
+Supported query parameters:
+
+- `limit`
+- `offset`
+- `status`
+- `policy_id`
+- `start_time`
+- `end_time`
+
+Response shape:
+
 ```json
 {
-  "data": {
-    "id": "01JQZX3K2FGH9VWBCD45EFGHIJ",
-    "org_id": "01JPKDEF456OrgExample123",
-    "policy_id": "01JQZX3K2FGH9VWBCDPOLICYID",
-    "status": "active",
-    "started_at": "2026-02-03T12:00:00.000Z",
-    "metadata": {
-      "agent_name": "customer-support",
-      "user_id": "user_123",
-      "environment": "production"
-    }
-  }
+  "runs": []
 }
 ```
 
-### 3.2 Get Run
+`limit` defaults to 50 and is capped at 100; invalid/non-positive values fall back to 50. `offset` defaults to 0. The `status` filter accepts a comma-separated list.
 
-Retrieve run details.
+### GET /api/v1/runs/{runID}
 
-```
-GET /runs/{run_id}
-```
+Returns a single run when it belongs to the authenticated organization.
 
-**Response:**
+### GET /api/v1/runs/{runID}/steps
+
+Returns:
+
 ```json
 {
-  "data": {
-    "id": "01JQZX3K2FGH9VWBCD45EFGHIJ",
-    "org_id": "01JPKDEF456OrgExample123",
-    "policy_id": "01JQZX3K2FGH9VWBCDPOLICYID",
-    "status": "completed",
-    "started_at": "2026-02-03T12:00:00.000Z",
-    "finished_at": "2026-02-03T12:34:56.789Z",
-    "metadata": {},
-    "counters": {
-      "steps": 15,
-      "tool_calls": 42,
-      "blocked": 3
-    }
-  }
+  "steps": []
 }
 ```
 
-### 3.3 List Runs
+A step includes `step_id`, `run_id`, sequence number, name, state vector, timestamps, status and optional error.
 
-List runs with optional filters.
+### GET /api/v1/runs/{runID}/events
 
-```
-GET /runs?status=active&page=1&per_page=20
-```
+Returns:
 
-**Query Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `status` | string | Filter by status: active, completed, failed |
-| `policy_id` | string | Filter by policy ID |
-| `page` | integer | Page number (default: 1) |
-| `per_page` | integer | Items per page (default: 20, max: 100) |
-
-### 3.4 Complete Run
-
-Mark a run as completed.
-
-```
-POST /runs/{run_id}/complete
-```
-
-**Request Body:**
 ```json
 {
-  "status": "completed",
-  "final_state": {
-    "output": "Task completed successfully"
-  }
+  "events": []
 }
 ```
 
----
+Each event includes `event_id`, `run_id`, `seq_no`, `event_type`, timestamp, payload, previous hash and event hash.
 
-## 4. Steps
+### POST /api/v1/runs/{runID}/events
 
-### 4.1 Create Step
+Submit an SDK/lifecycle event.
 
-Add a new step to a run.
+Request:
 
-```
-POST /runs/{run_id}/steps
-```
-
-**Request Body:**
 ```json
 {
-  "type": "agent_action",
-  "input": {
-    "prompt": "Search for customer information"
+  "event_type": "step.started",
+  "payload": {
+    "step_id": "01EXAMPLE"
   },
-  "state": {
-    "context_length": 4096
-  }
+  "timestamp": "2026-09-25T06:00:00Z"
 }
 ```
 
-**Response:**
-```json
-{
-  "data": {
-    "id": "01JQZX3K2FGH9VWBCDSTEP0001",
-    "run_id": "01JQZX3K2FGH9VWBCD45EFGHIJ",
-    "sequence": 0,
-    "type": "agent_action",
-    "status": "started",
-    "input_hash": "sha256:abc123...",
-    "started_at": "2026-02-03T12:00:00.000Z"
-  }
-}
-```
+`event_type` is required and must be in the server's allowed event-type set. Successful creation returns HTTP 201 with the persisted event.
 
-### 4.2 Get Step
+## 5. Policies
 
-Retrieve step details.
+### POST /api/v1/policies/
 
-```
-GET /runs/{run_id}/steps/{step_id}
-```
+Create a draft policy.
 
-### 4.3 List Steps
-
-List steps for a run.
-
-```
-GET /runs/{run_id}/steps?page=1&per_page=50
-```
-
-### 4.4 Complete Step
-
-Mark a step as completed.
-
-```
-POST /runs/{run_id}/steps/{step_id}/complete
-```
-
-**Request Body:**
-```json
-{
-  "output": {
-    "result": "Found 3 matching customers"
-  }
-}
-```
-
----
-
-## 5. Tool Calls
-
-### 5.1 Submit Tool Call
-
-Submit a tool call for policy evaluation and execution.
-
-```
-POST /runs/{run_id}/steps/{step_id}/tool-calls
-```
-
-**Request Body:**
-```json
-{
-  "tool_name": "http_request",
-  "arguments": {
-    "url": "https://api.example.com/customers",
-    "method": "GET",
-    "headers": {
-      "Authorization": "Bearer token123"
-    }
-  }
-}
-```
-
-**Response (Allowed):**
-```json
-{
-  "data": {
-    "id": "01JQZX3K2FGH9VWBCDTOOLCALL",
-    "tool_name": "http_request",
-    "decision": {
-      "action": "allow",
-      "policy_rule_id": "tool.http_request",
-      "evaluated_at": "2026-02-03T12:00:01.234Z"
-    },
-    "status": "pending_execution"
-  }
-}
-```
-
-**Response (Blocked):**
-```json
-{
-  "data": {
-    "id": "01JQZX3K2FGH9VWBCDTOOLCALL",
-    "tool_name": "shell_exec",
-    "decision": {
-      "action": "block",
-      "policy_rule_id": "tool.shell_exec",
-      "reason": "Tool 'shell_exec' is blocked by policy"
-    },
-    "status": "blocked",
-    "error": "Tool call blocked by policy"
-  }
-}
-```
-
-**Response (Requires Approval):**
-```json
-{
-  "data": {
-    "id": "01JQZX3K2FGH9VWBCDTOOLCALL",
-    "tool_name": "database_write",
-    "decision": {
-      "action": "require_approval",
-      "policy_rule_id": "tool.database_write",
-      "approval_id": "01JQZX3K2FGH9VWBCDAPPROVAL"
-    },
-    "status": "pending_approval"
-  }
-}
-```
-
-### 5.2 Submit Tool Response
-
-Submit the result of tool execution.
-
-```
-POST /runs/{run_id}/steps/{step_id}/tool-calls/{tool_call_id}/response
-```
-
-**Request Body:**
-```json
-{
-  "response": {
-    "status_code": 200,
-    "body": {
-      "customers": [
-        {"id": "cust_1", "name": "John Doe"}
-      ]
-    }
-  },
-  "error": null
-}
-```
-
-### 5.3 Get Tool Call
-
-Retrieve tool call details.
-
-```
-GET /runs/{run_id}/steps/{step_id}/tool-calls/{tool_call_id}
-```
-
----
-
-## 6. Policies
-
-### 6.1 Create Policy
-
-Create a new policy.
-
-```
-POST /policies
-```
-
-**Request Body:**
 ```json
 {
   "name": "production-policy",
-  "version": "v1",
-  "description": "Production policy with strict controls",
   "spec": {
     "tools": [
       {
         "name": "http_request",
-        "action": "allow",
-        "arg_schema": {
-          "type": "object",
-          "properties": {
-            "url": {"type": "string", "format": "uri"},
-            "method": {"type": "string", "enum": ["GET", "POST"]}
-          }
-        }
+        "action": "allow"
       }
     ],
     "budgets": {
@@ -397,305 +216,166 @@ POST /policies
 }
 ```
 
-**Response:**
+The policy compiler validates the spec before persistence.
+
+### GET /api/v1/policies/
+
+List policies. Optional query parameter:
+
+- `status`
+
+Response:
+
 ```json
 {
-  "data": {
-    "id": "01JQZX3K2FGH9VWBCDPOLICYID",
-    "name": "production-policy",
-    "version": "v1",
-    "status": "draft",
-    "spec_hash": "sha256:policy123...",
-    "created_at": "2026-02-03T12:00:00.000Z"
-  }
+  "policies": []
 }
 ```
 
-### 6.2 Get Policy
+### GET /api/v1/policies/{policyID}
 
-Retrieve policy details.
+Returns the latest policy version by default. An exact version may be requested with `?version=v1`.
 
+### PUT /api/v1/policies/{policyID}
+
+Creates an updated policy version from a validated `spec`.
+
+### DELETE /api/v1/policies/{policyID}
+
+Deprecates the current policy rather than physically deleting historical data. Success returns HTTP 204.
+
+### POST /api/v1/policies/{policyID}/activate
+
+Activates/deploys the current eligible policy version according to lifecycle rules.
+
+### POST /api/v1/policies/{policyID}/deactivate
+
+Moves the current active policy back to draft state.
+
+## 6. Approvals
+
+### GET /api/v1/approvals/?policy_id=<id>&version=<version>
+
+Both query parameters are required.
+
+### GET /api/v1/approvals/{approvalID}
+
+Returns one approval decision.
+
+### POST /api/v1/approvals/policies/{policyID}/approve?version=<version>
+
+The policy must be in review status. Body is optional:
+
+```json
+{ "comment": "Reviewed" }
 ```
-GET /policies/{policy_id}
+
+### POST /api/v1/approvals/policies/{policyID}/reject?version=<version>
+
+A rejection requires a comment:
+
+```json
+{ "comment": "Explain the required changes" }
 ```
 
-### 6.3 List Policies
+## 7. Gateway
 
-List policies with optional filters.
+### POST /api/v1/gateway/execute
 
-```
-GET /policies?status=deployed&page=1&per_page=20
-```
+Central policy-enforcement endpoint.
 
-**Query Parameters:**
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `status` | string | Filter by status: draft, review, approved, deployed, deprecated |
-| `name` | string | Filter by policy name (exact match) |
-
-### 6.4 Update Policy Status
-
-Change policy lifecycle status.
-
-```
-POST /policies/{policy_id}/status
-```
-
-**Request Body:**
 ```json
 {
-  "status": "approved",
-  "comment": "Reviewed and approved for production use"
+  "run_id": "01RUN",
+  "step_id": "01STEP",
+  "tool_name": "http_request",
+  "args": {
+    "url": "https://api.example.com"
+  },
+  "state_vector": {},
+  "metadata": {},
+  "executor": "builtin"
 }
 ```
 
-### 6.5 Validate Policy
+Required: `run_id`, `step_id`, `tool_name`.
 
-Validate a policy spec without creating it.
+Response:
 
-```
-POST /policies/validate
-```
-
-**Request Body:**
 ```json
 {
-  "spec": {
-    "tools": [...]
-  }
+  "tool_call_id": "01TOOLCALL",
+  "decision": {
+    "action": "allow",
+    "policy_rule_id": "http_request",
+    "reason": "allowed"
+  },
+  "result": {}
 }
 ```
 
-**Response:**
+| Decision | HTTP status |
+|---|---:|
+| allow | 200 |
+| warn | 200 |
+| redact | 200 |
+| block | 403 |
+| require_approval | 202 |
+| unexpected/internal failure | 500 |
+
+The current gateway returns a `require_approval` decision, but pending tool-call approval/resume execution is **not implemented in this iteration**. The `/approvals` endpoints documented above are policy-version approvals, not pending tool-call approvals.
+
+## 8. Evidence
+
+### GET /api/v1/evidence/runs/{runID}/bundle
+
+Streams the evidence ZIP. Current bundle format: **1.0.0**.
+
+### POST /api/v1/evidence/verify
+
+Server-side chain verification:
+
+```json
+{ "run_id": "01RUN" }
+```
+
+Response:
+
 ```json
 {
-  "data": {
-    "valid": true,
-    "warnings": [
-      "Tool 'legacy_api' not used in any conditions"
-    ]
-  }
+  "run_id": "01RUN",
+  "chain_valid": true,
+  "message": ""
 }
 ```
 
----
+For independent signature verification, use `aegis-verify` against the exported ZIP.
 
-## 7. Approvals
+## 9. Statistics
 
-### 7.1 List Pending Approvals
+### GET /api/v1/stats
 
-List approvals awaiting decision.
+Returns database-computed dashboard aggregates for the authenticated organization, including run counts and status aggregates.
 
-```
-GET /approvals?status=pending
-```
+## 10. Error behavior
 
-### 7.2 Get Approval
+Common status codes:
 
-Retrieve approval details.
+- 400 — invalid/missing input;
+- 401 — missing/invalid authentication;
+- 403 — permission denied or gateway policy block;
+- 404 — tenant-scoped resource not found;
+- 409 — lifecycle/duplicate approval conflict;
+- 500 — internal failure;
+- 503 — readiness dependency unavailable.
 
-```
-GET /approvals/{approval_id}
-```
+Some handler errors are plain-text `http.Error` responses while gateway errors are JSON. Clients should rely primarily on status codes unless an endpoint explicitly documents a JSON error body.
 
-**Response:**
-```json
-{
-  "data": {
-    "id": "01JQZX3K2FGH9VWBCDAPPROVAL",
-    "run_id": "01JQZX3K2FGH9VWBCD45EFGHIJ",
-    "tool_call_id": "01JQZX3K2FGH9VWBCDTOOLCALL",
-    "tool_name": "database_write",
-    "arguments": {
-      "table": "users",
-      "operation": "UPDATE"
-    },
-    "status": "pending",
-    "requested_at": "2026-02-03T12:00:00.000Z",
-    "policy_rule_id": "tool.database_write"
-  }
-}
-```
+## 11. Source of truth
 
-### 7.3 Approve Tool Call
+If documentation and code disagree, these are authoritative:
 
-Grant approval for a pending tool call.
-
-```
-POST /approvals/{approval_id}/approve
-```
-
-**Request Body:**
-```json
-{
-  "comment": "Approved after verifying data integrity"
-}
-```
-
-### 7.4 Deny Tool Call
-
-Deny a pending tool call.
-
-```
-POST /approvals/{approval_id}/deny
-```
-
-**Request Body:**
-```json
-{
-  "reason": "Operation not necessary for this task"
-}
-```
-
----
-
-## 8. Events
-
-### 8.1 List Events
-
-List events for a run.
-
-```
-GET /runs/{run_id}/events?page=1&per_page=100
-```
-
-**Response:**
-```json
-{
-  "data": [
-    {
-      "id": "01JQZX3K2FGH9VWBCDEVENT001",
-      "run_id": "01JQZX3K2FGH9VWBCD45EFGHIJ",
-      "type": "run.started",
-      "timestamp": "2026-02-03T12:00:00.000Z",
-      "sequence": 0,
-      "payload": {}
-    },
-    {
-      "id": "01JQZX3K2FGH9VWBCDEVENT002",
-      "run_id": "01JQZX3K2FGH9VWBCD45EFGHIJ",
-      "type": "tool_call.submitted",
-      "timestamp": "2026-02-03T12:00:01.000Z",
-      "sequence": 1,
-      "payload": {
-        "tool_call_id": "01JQZX3K2FGH9VWBCDTOOLCALL",
-        "tool_name": "http_request"
-      }
-    }
-  ]
-}
-```
-
-### 8.2 Stream Events (SSE)
-
-Subscribe to real-time events.
-
-```
-GET /runs/{run_id}/events/stream
-Accept: text/event-stream
-```
-
-**Event Format:**
-```
-event: tool_call.completed
-data: {"tool_call_id":"01JQZX3K2FGH...","tool_name":"http_request"}
-
-event: step.completed
-data: {"step_id":"01JQZX3K2FGH...","sequence":5}
-```
-
----
-
-## 9. Evidence Export
-
-### 9.1 Export Bundle
-
-Export a complete evidence bundle.
-
-```
-GET /runs/{run_id}/export?format=bundle
-```
-
-**Query Parameters:**
-| Parameter | Values | Description |
-|-----------|--------|-------------|
-| `format` | bundle, manifest, attestation | Export format |
-
-**Response Headers:**
-```
-Content-Type: application/zip
-Content-Disposition: attachment; filename="evidence-01JQZX3K2FGH9VWBCD45EFGHIJ.zip"
-```
-
----
-
-## 10. Health & Info
-
-### 10.1 Health Check
-
-```
-GET /health
-```
-
-**Response:**
-```json
-{
-  "status": "healthy",
-  "version": "1.0.0"
-}
-```
-
-### 10.2 Readiness Check
-
-```
-GET /ready
-```
-
-**Response:**
-```json
-{
-  "status": "ready",
-  "checks": {
-    "database": "ok",
-    "signing_key": "ok"
-  }
-}
-```
-
----
-
-## 11. Error Codes
-
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| `VALIDATION_ERROR` | 400 | Invalid request payload |
-| `UNAUTHORIZED` | 401 | Missing or invalid token |
-| `FORBIDDEN` | 403 | Insufficient permissions |
-| `NOT_FOUND` | 404 | Resource not found |
-| `CONFLICT` | 409 | Resource conflict (e.g., duplicate) |
-| `POLICY_VIOLATION` | 422 | Tool call blocked by policy |
-| `BUDGET_EXCEEDED` | 422 | Run budget limit reached |
-| `RATE_LIMITED` | 429 | Too many requests |
-| `INTERNAL_ERROR` | 500 | Server error |
-
----
-
-## 12. Rate Limits
-
-| Endpoint Pattern | Limit |
-|------------------|-------|
-| `/runs/*` | 100/min |
-| `/policies/*` | 50/min |
-| `/approvals/*` | 200/min |
-| `/*/*/tool-calls` | 1000/min |
-
-Rate limit headers:
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
-X-RateLimit-Reset: 1706961600
-```
-
----
-
-**End of API_REFERENCE.md**
+- `api/internal/server/server.go`
+- `api/internal/server/handlers/`
+- `api/internal/gateway/`
+- `api/internal/contracts/`

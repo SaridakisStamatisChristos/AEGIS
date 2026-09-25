@@ -1,7 +1,7 @@
 # AegisRun Deploy Rollback Playbook
 
 **Owner**: Platform / SRE team  
-**Last Reviewed**: 2026-02-22  
+**Last Reviewed**: 2026-09-25  
 **Review Cadence**: Quarterly
 
 ---

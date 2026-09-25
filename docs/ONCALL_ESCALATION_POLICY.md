@@ -1,7 +1,7 @@
 # AegisRun On-Call Escalation Policy
 
 **Owner**: Platform / SRE  
-**Last Reviewed**: 2026-02-22  
+**Last Reviewed**: 2026-09-25  
 **Review Cadence**: Quarterly
 
 ---
@@ -30,7 +30,7 @@ The Prometheus alert `AegisRunErrorBudgetBurn` is treated as **SEV-1**.
 - Open incident channel and assign incident commander.
 - Validate current release window and canary status.
 - Check SLO dashboard (`error rate`, `p95/p99 latency`, `throughput`).
-- Trigger rollback per `docs/ROLLBACK_PLAYBOOK.md` when mitigation is not effective within SLO window.
+- Trigger rollback per [ROLLBACK_PLAYBOOK.md](ROLLBACK_PLAYBOOK.md) when mitigation is not effective within SLO window.
 
 ---
 

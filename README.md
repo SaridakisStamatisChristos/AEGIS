@@ -1,281 +1,278 @@
 # AegisRun
 
-**Production-Grade Agent Control Plane**
+**Production-grade control plane for AI-agent tool use**
 
-AegisRun provides hard enforcement of tool use for AI agents with policy-as-code, tamper-evident evidence ledger, and complete audit trails.
+AegisRun places a policy-enforcement gateway between an AI agent and the tools it can call. It combines policy-as-code, runtime budgets, approvals, redaction, tamper-evident evidence, offline verification, and operational controls in a self-hosted platform.
 
-## Features
+**Current application release:** `v1.0.1`  
+**Evidence bundle format:** `1.0.0`  
+**License:** Apache-2.0
 
-- **Hard Policy Enforcement**: Block, allow, redact, or require approval for tool calls
-- **Policy-as-Code**: YAML/JSON policies with CEL-like expressions
-- **Tamper-Evident Ledger**: Hash-chained event log with Ed25519 signatures
-- **Offline Verification**: Export and verify evidence bundles independently
-- **SDKs**: Python and TypeScript SDKs for instrumenting any agent
-- **Web UI**: Run explorer, policy studio, approval workflows
-- **Self-Hosted**: Full control with SSO + RBAC + multi-tenant isolation
+## Why AegisRun
 
-## Quick Start
+- **Hard tool enforcement** — allow, warn, redact, block, degrade, or return a require-approval decision before tool execution.
+- **Policy-as-code** — versioned YAML/JSON policy specs with schema validation, conditions, budgets, egress controls, and redaction.
+- **Tamper-evident evidence** — hash-chained events, signed run evidence, exportable bundles, and an independent verifier CLI.
+- **Operational controls** — OIDC, RBAC, tenant isolation, rate limiting, Prometheus/OpenTelemetry instrumentation, health probes, HPA, network policy, backup/restore, canary and rollback tooling.
+- **SDKs** — Python and TypeScript clients for instrumenting agent workflows.
+- **Web UI** — run exploration, policy management, approvals, and evidence workflows.
+- **Self-hosted** — Docker Compose for development and Kubernetes manifests for production-oriented deployment.
 
-### Prerequisites
+## Release status
 
-- Docker & Docker Compose
-- Go 1.23+ (for development)
-- Node.js 20+ (for UI development)
-- Python 3.9+ (for Python SDK)
+AegisRun `v1.0.1` is published as a GitHub Release with:
 
-### Running Locally
+- verifier binaries for Linux (amd64/arm64), macOS (amd64/arm64), and Windows (amd64);
+- SHA-256 checksums;
+- SPDX SBOMs for the API, UI, Python SDK, and TypeScript SDK;
+- provenance attestations produced during the release pipeline;
+- container images built and pushed by the release workflow.
+
+The Python and TypeScript SDK source is usable directly from the repository. Registry publication to PyPI and npm is **not yet configured for v1.0.1**; the release jobs built and attested the packages but registry authentication was unavailable. See [Production Readiness](PRODUCTION_READINESS.md) and [Release Evidence Runbook](docs/RELEASE_EVIDENCE_RUNBOOK.md).
+
+## Quick start
+
+### Requirements
+
+For the simplest local start:
+
+- Docker 24+
+- Docker Compose 2.20+
+
+For source development:
+
+- Go **1.25+** (the module baseline; CI/release currently uses Go 1.27.1)
+- Node.js **24+** recommended (CI/release currently uses Node 24.21.0)
+- Python **3.9+**
+
+### Run locally
 
 ```bash
-# Clone the repository
-git clone https://github.com/aegisrun/aegisrun.git
-cd aegisrun
+git clone https://github.com/SaridakisStamatisChristos/AEGIS.git
+cd AEGIS
+git checkout v1.0.1
 
-# Copy environment file
 cp .env.example .env
+docker compose up --build -d
 
-# Start all services
-make docker-up
-
-# Access the UI
-open http://localhost:5173
-
-# API available at
 curl http://localhost:8080/health
+curl http://localhost:8080/ready
 ```
 
-### Running Tests
+The default Compose file is for **development only**. It intentionally permits development defaults such as mock OIDC and non-TLS database access. Production startup applies stricter validation and should use the Kubernetes deployment path.
+
+### Run verification
 
 ```bash
-make test
+make verify
 ```
 
-### Building
+For timestamped verification artifacts:
 
 ```bash
-make build
+make verify-all
 ```
 
-### Readiness Scoring
+On Windows:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\scripts\verify-all.ps1
+```
+
+### Production-readiness score
 
 ```bash
-# Bash
 bash ops/scripts/readiness-score.sh
-
-# JSON output for CI/automation
 bash ops/scripts/readiness-score.sh --json
 ```
 
-```powershell
-# Windows PowerShell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\scripts\readiness-score.ps1
+The score is a structural repository check. It does **not** replace release evidence, registry publication checks, staging validation, or an operator sign-off.
 
-# JSON output for CI/automation
-powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\scripts\readiness-score.ps1 -Json
+## Using the release
+
+### Offline verifier
+
+Download the verifier binary for your platform from the `v1.0.1` GitHub Release, verify it against `checksums.txt`, then run:
+
+```bash
+./aegis-verify-linux-amd64 evidence.zip
+```
+
+### Python SDK from source
+
+Until PyPI Trusted Publishing is configured:
+
+```bash
+python -m pip install ./sdk/python
+```
+
+### TypeScript SDK from source
+
+Until npm publishing is configured:
+
+```bash
+cd sdk/typescript
+npm ci
+npm run build
 ```
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                      AegisRun System                         │
-├──────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────────┐      ┌──────────────┐                     │
-│  │ Agent (Py/TS)│─────▶│ Tool Gateway │                     │
-│  │ + SDK        │      │ (Policy Enf) │                     │
-│  └──────────────┘      └──────┬───────┘                     │
-│                               │                              │
-│                               ▼                              │
-│  ┌──────────────┐      ┌──────────────┐                     │
-│  │ Web UI       │─────▶│ API Server   │                     │
-│  │ (React)      │      │ (Go/Chi)     │                     │
-│  └──────────────┘      └──────┬───────┘                     │
-│                               │                              │
-│                               ▼                              │
-│                        ┌──────────────┐                     │
-│                        │  PostgreSQL  │                     │
-│                        │ (Ledger+Jobs)│                     │
-│                        └──────────────┘                     │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │         Evidence Verifier CLI (Offline)              │   │
-│  └──────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────┘
+```text
+Agent / SDK
+    |
+    v
++----------------------+       +----------------------+
+| AegisRun Tool Gateway| ----> | Policy Compiler /    |
+| hard enforcement     |       | Evaluator            |
++----------+-----------+       +----------------------+
+           |
+           v
++----------------------+       +----------------------+
+| Go API / Chi         | ----> | PostgreSQL           |
+| OIDC + RBAC          |       | runs/events/policies |
++----------+-----------+       +----------------------+
+           |
+           +----> Prometheus / OpenTelemetry
+           |
+           +----> Evidence bundle ----> Offline verifier
+
+React UI ----> Go API
 ```
 
-## Project Structure
+See [System Architecture](docs/ARCHITECTURE.md) for component and security details.
 
-```
-aegisrun/
-├── api/                    # Go API server
-│   ├── cmd/server/         # Entry point
-│   ├── internal/           # Internal packages
-│   │   ├── gateway/        # Tool gateway + enforcement
-│   │   ├── policy/         # Policy compiler + evaluator
-│   │   ├── ledger/         # Evidence ledger + signing
-│   │   ├── auth/           # OIDC + RBAC
-│   │   └── store/          # Database layer
-│   └── migrations/         # SQL migrations
+## Repository layout
+
+```text
+AEGIS/
+├── api/                  Go control-plane API and policy gateway
+├── verifier/             Offline evidence verifier
 ├── sdk/
-│   ├── python/             # Python SDK
-│   └── typescript/         # TypeScript SDK
-├── ui/                     # React frontend
-├── verifier/               # Offline evidence verifier CLI
-├── ops/                    # Kubernetes, Helm, Terraform
-└── demo/                   # Demo scenarios
+│   ├── python/
+│   └── typescript/
+├── ui/                   React frontend
+├── ops/                  Kubernetes, monitoring and operational scripts
+├── tests/                E2E and load tests
+├── docs/                 Technical and operational documentation
+└── artifacts/            Historical verification/drill/release evidence
 ```
 
-## SDK Usage
+## Policy example
 
-### Python
+A policy is created through the API as a named document whose `spec` contains the enforcement rules:
 
-```python
-from aegisrun import AegisRunClient, Run
-
-client = AegisRunClient(base_url="http://localhost:8080")
-
-run = Run(
-    client=client,
-    policy_ref={"policy_id": "my-policy", "version": "v1"},
-    metadata={"environment": "production"}
-).start()
-
-result = run.step("fetch_data", {"task": "collect"}, lambda step: 
-    step.tool_call("http_request", {"url": "https://api.example.com"})
-)
-
-run.end({"status": "success"})
+```json
+{
+  "name": "production-policy",
+  "spec": {
+    "tools": [
+      {
+        "name": "http_request",
+        "action": "allow",
+        "arg_schema": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" },
+            "method": { "type": "string", "enum": ["GET", "POST"] }
+          }
+        },
+        "conditions": ["args.url.startsWith('https://')"]
+      },
+      {
+        "name": "shell_exec",
+        "action": "block"
+      }
+    ],
+    "budgets": {
+      "max_tool_calls": 100,
+      "max_wall_clock_sec": 300,
+      "max_bytes_egressed": 10485760
+    },
+    "egress_controls": {
+      "domain_allowlist": ["api.github.com"],
+      "block_private_ips": true
+    }
+  }
+}
 ```
 
-### TypeScript
+See [Policy DSL Reference](docs/POLICY_DSL.md) for the full policy-spec model. **Current limitation:** a runtime `require_approval` tool decision is recorded/returned, but pending tool-call approval and resume execution are not yet implemented; the existing `/approvals` API is for policy-version approval.
 
-```typescript
-import { AegisRunClient, Run } from '@aegisrun/sdk';
+## Evidence bundles
 
-const client = new AegisRunClient({ baseUrl: 'http://localhost:8080' });
+A current evidence bundle contains:
 
-const run = await new Run({
-  client,
-  policyRef: { policy_id: 'my-policy', version: 'v1' }
-}).start();
-
-await run.step('fetch_data', {}, async (step) => {
-  return step.toolCall('http_request', { url: 'https://api.example.com' });
-});
-
-run.end({ status: 'success' });
+```text
+manifest.json
+events.jsonl
+policy_snapshot.json
+run.json
+public_key.pem      # when a signing key is available
+README.txt
 ```
 
-## Policy DSL
+The verifier checks the event hash chain, policy snapshot integrity, and signature information using the included public key. The bundle format remains version `1.0.0` in AegisRun `v1.0.1`.
 
-```yaml
-# policy.yaml
-name: production-policy
-version: v1
-spec:
-  tools:
-    - name: http_request
-      action: allow
-      conditions:
-        - "args.url.startsWith('https://')"
-      arg_schema:
-        type: object
-        properties:
-          url: { type: string }
-          method: { type: string, enum: [GET, POST] }
-    
-    - name: shell_exec
-      action: block
-      
-    - name: db_query
-      action: require_approval
+See [Evidence Bundle Format](docs/EVIDENCE_FORMAT.md).
 
-  budgets:
-    max_tool_calls: 100
-    max_wall_clock_sec: 300
-    max_bytes_egressed: 10485760
+## Security and production behavior
 
-  egress_controls:
-    domain_allowlist:
-      - "*.example.com"
-      - "api.github.com"
-    block_private_ips: true
+Production configuration validates, among other things:
 
-  redaction:
-    patterns:
-      - "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b"
-      - "\\b\\d{4}[- ]?\\d{4}[- ]?\\d{4}[- ]?\\d{4}\\b"
-    mask_strategy: redact
-```
+- non-mock OIDC configuration;
+- non-default database credentials;
+- database TLS mode;
+- explicit CORS origin;
+- enabled rate limiting;
+- explicit client-IP trust configuration.
 
-## Evidence Verification
+Forwarding headers are ignored by default. Deployments behind trusted proxies may opt into `CLIENT_IP_MODE=xff_trusted_proxies` with an exact positive `TRUSTED_PROXY_COUNT`.
 
-```bash
-# Export evidence bundle for a run
-curl -o evidence.zip http://localhost:8080/api/v1/evidence/{run_id}/bundle
-
-# Verify offline
-./verifier/bin/aegis-verify evidence.zip
-
-# Output:
-# ✓ Event chain integrity verified (127 events)
-# ✓ Policy immutability confirmed
-# ✓ Ed25519 signature valid
-# ✓ All redaction rules applied
-```
-
-## Development
-
-### API Server
-
-```bash
-cd api
-go run cmd/server/main.go
-```
-
-### UI
-
-```bash
-cd ui
-npm install
-npm run dev
-```
-
-### Database Migrations
-
-```bash
-make migrate
-```
-
-## Configuration
-
-See [.env.example](.env.example) for all configuration options.
-
-Key settings:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DB_HOST` | PostgreSQL host | localhost |
-| `DB_PORT` | PostgreSQL port | 5432 |
-| `OIDC_ISSUER` | OIDC provider URL (or "mock") | mock |
-| `LOG_LEVEL` | Logging level | info |
+The security pipeline includes dependency/vulnerability scanning, CodeQL, secret scanning, license checks, SBOM generation, and fail-closed high/critical release checks.
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md)
-- [Contracts & Schemas](docs/CONTRACTS.md)
-- [Policy DSL Reference](docs/POLICY_DSL.md)
-- [Evidence Format](docs/EVIDENCE_FORMAT.md)
 - [API Reference](docs/API_REFERENCE.md)
+- [System Architecture](docs/ARCHITECTURE.md)
+- [Core Contracts](docs/CONTRACTS.md)
+- [Policy DSL Reference](docs/POLICY_DSL.md)
+- [Evidence Bundle Format](docs/EVIDENCE_FORMAT.md)
 - [Deployment Guide](docs/DEPLOYMENT.md)
-- [Backup & Restore Runbook](docs/BACKUP_RESTORE_RUNBOOK.md)
+- [Production Readiness](PRODUCTION_READINESS.md)
+- [Production Roadmap](PRODUCTION_ROADMAP.md)
 - [Release Checklist](docs/RELEASE_CHECKLIST.md)
 - [Release Evidence Runbook](docs/RELEASE_EVIDENCE_RUNBOOK.md)
+- [Backup & Restore Runbook](docs/BACKUP_RESTORE_RUNBOOK.md)
+- [Rollback Playbook](docs/ROLLBACK_PLAYBOOK.md)
+- [On-Call Escalation Policy](docs/ONCALL_ESCALATION_POLICY.md)
+- [Game-Day Drill Template](docs/GAMEDAY_DRILL_TEMPLATE.md)
+
+## Development
+
+```bash
+# API
+cd api
+go test ./...
+go run ./cmd/server
+
+# Verifier
+cd ../verifier
+go test ./...
+
+# UI
+cd ../ui
+npm ci
+npm run test -- --run
+npm run build
+
+# TypeScript SDK
+cd ../sdk/typescript
+npm ci
+npm test
+npm run build
+```
 
 ## License
 
-Apache 2.0 - See [LICENSE](LICENSE) for details.
-
-## Security
-
-For security issues, please email security@aegisrun.io.
+Apache-2.0. See [LICENSE](LICENSE).

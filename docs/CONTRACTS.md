@@ -1,8 +1,9 @@
 # AegisRun Core Contracts v1.0.0
 
-**Status**: Normative  
-**Last Updated**: 2026-02-03  
-**Authors**: AegisRun Architecture Team
+**Status:** Normative  
+**Compatible application baseline:** AegisRun v1.0.1  
+**Reviewed:** 2026-09-25  
+**Authors:** AegisRun Architecture Team
 
 ---
 
