@@ -6,28 +6,103 @@ on:
       - 'v*'
 
 env:
-  GO_VERSION: '1.24.13'
-  NODE_VERSION: '20'
+  GO_VERSION: '1.27.1'
+  NODE_VERSION: '24.21.0'
   PYTHON_VERSION: '3.11'
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ${{ github.repository }}
 
 jobs:
+  # ==========================================================================
+  # Release Preflight
+  # ==========================================================================
+  release-preflight:
+    name: Release Preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate semantic release tag
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release tag '$GITHUB_REF_NAME' is not valid SemVer with a leading v."
+            exit 1
+          fi
+
+      - name: Verify tagged commit is on main
+        shell: bash
+        run: |
+          git fetch origin main --no-tags
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/main"; then
+            echo "::error::Release tags must point to a commit already contained in main."
+            exit 1
+          fi
+
+      - name: Verify package versions match tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PY_VERSION="$(sed -n 's/^version = "\([^"]*\)"/\1/p' sdk/python/pyproject.toml | head -n1)"
+          TS_VERSION="$(python3 -c 'import json; print(json.load(open("sdk/typescript/package.json"))["version"])')"
+          UI_VERSION="$(python3 -c 'import json; print(json.load(open("ui/package.json"))["version"])')"
+
+          for entry in "Python SDK:$PY_VERSION" "TypeScript SDK:$TS_VERSION" "UI:$UI_VERSION"; do
+            name="${entry%%:*}"
+            value="${entry#*:}"
+            if [ "$value" != "$VERSION" ]; then
+              echo "::error::$name version $value does not match release tag $VERSION."
+              exit 1
+            fi
+          done
+
   # ==========================================================================
   # Release Security Gate (mandatory for tags)
   # ==========================================================================
   release-security-gate:
     name: Release Security Gate
     runs-on: ubuntu-latest
+    needs: [release-preflight]
     permissions:
       contents: read
       security-events: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            api/go.sum
+            verifier/go.sum
+
+      - name: Verify API module files are tidy
+        working-directory: ./api
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+
+      - name: Govulncheck API
+        working-directory: ./api
+        run: govulncheck ./...
+
+      - name: Govulncheck verifier
+        working-directory: ./verifier
+        run: govulncheck ./...
 
       - name: Trivy scan (API)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: './api'
@@ -36,7 +111,7 @@ jobs:
           exit-code: '1'
 
       - name: Trivy scan (Verifier)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: './verifier'
@@ -45,7 +120,7 @@ jobs:
           exit-code: '1'
 
       - name: Trivy scan (UI)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: './ui'
@@ -54,7 +129,7 @@ jobs:
           exit-code: '1'
 
       - name: Trivy scan (Python SDK)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: './sdk/python'
@@ -63,7 +138,7 @@ jobs:
           exit-code: '1'
 
       - name: Trivy scan (TypeScript SDK)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: './sdk/typescript'
@@ -72,7 +147,7 @@ jobs:
           exit-code: '1'
 
       - name: Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+        uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -85,9 +160,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Syft
-        uses: anchore/sbom-action/download-syft@v0
+        uses: anchore/sbom-action/download-syft@v0.24.2
       - name: Generate API SBOM
         run: syft dir:./api -o spdx-json=sbom-api.spdx.json
       - name: Generate UI SBOM
@@ -97,7 +172,7 @@ jobs:
       - name: Generate TypeScript SDK SBOM
         run: syft dir:./sdk/typescript -o spdx-json=sbom-sdk-typescript.spdx.json
       - name: Upload release SBOM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-sbom
           path: |
@@ -121,13 +196,18 @@ jobs:
       attestations: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - name: Normalize image namespace
+        id: image-namespace
+        shell: bash
+        run: echo "value=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -135,9 +215,9 @@ jobs:
 
       - name: Extract metadata (tags, labels) for API
         id: meta-api
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/api
+          images: ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/api
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -145,7 +225,7 @@ jobs:
 
       - name: Build and push API image
         id: build-api-image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./api
           push: true
@@ -157,17 +237,17 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Attest API image provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/api
+          subject-name: ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/api
           subject-digest: ${{ steps.build-api-image.outputs.digest }}
           push-to-registry: true
 
       - name: Extract metadata for UI
         id: meta-ui
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/ui
+          images: ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/ui
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -175,7 +255,7 @@ jobs:
 
       - name: Build and push UI image
         id: build-ui-image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./ui
           push: true
@@ -187,17 +267,17 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Attest UI image provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/ui
+          subject-name: ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/ui
           subject-digest: ${{ steps.build-ui-image.outputs.digest }}
           push-to-registry: true
 
       - name: Extract metadata for Verifier
         id: meta-verifier
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/verifier
+          images: ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/verifier
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -205,7 +285,7 @@ jobs:
 
       - name: Build and push Verifier image
         id: build-verifier-image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./verifier
           push: true
@@ -217,9 +297,9 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Attest verifier image provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/verifier
+          subject-name: ${{ env.REGISTRY }}/${{ steps.image-namespace.outputs.value }}/verifier
           subject-digest: ${{ steps.build-verifier-image.outputs.digest }}
           push-to-registry: true
 
@@ -229,13 +309,17 @@ jobs:
   publish-python-sdk:
     name: Publish Python SDK
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     needs: [build-and-push, release-security-gate]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -247,7 +331,7 @@ jobs:
         run: python -m build
 
       - name: Attest Python SDK artifacts
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: sdk/python/dist/*
 
@@ -264,13 +348,17 @@ jobs:
   publish-typescript-sdk:
     name: Publish TypeScript SDK
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     needs: [build-and-push, release-security-gate]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: 'https://registry.npmjs.org'
@@ -288,7 +376,7 @@ jobs:
         run: npm pack
 
       - name: Attest TypeScript SDK package
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: sdk/typescript/*.tgz
 
@@ -309,10 +397,10 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
 
@@ -320,16 +408,23 @@ jobs:
         working-directory: ./verifier
         run: |
           GOOS=linux GOARCH=amd64 go build -o aegis-verify-linux-amd64 ./cmd/verify/main.go
+          GOOS=linux GOARCH=arm64 go build -o aegis-verify-linux-arm64 ./cmd/verify/main.go
           GOOS=darwin GOARCH=amd64 go build -o aegis-verify-darwin-amd64 ./cmd/verify/main.go
           GOOS=darwin GOARCH=arm64 go build -o aegis-verify-darwin-arm64 ./cmd/verify/main.go
           GOOS=windows GOARCH=amd64 go build -o aegis-verify-windows-amd64.exe ./cmd/verify/main.go
 
+      - name: Generate verifier checksums
+        working-directory: ./verifier
+        run: sha256sum aegis-verify-* > checksums.txt
+
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
             verifier/aegis-verify-linux-amd64
+            verifier/aegis-verify-linux-arm64
             verifier/aegis-verify-darwin-amd64
             verifier/aegis-verify-darwin-arm64
             verifier/aegis-verify-windows-amd64.exe
+            verifier/checksums.txt
