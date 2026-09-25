@@ -141,14 +141,11 @@ Response shape:
 
 ```json
 {
-  "runs": [],
-  "total": 0,
-  "limit": 50,
-  "offset": 0
+  "runs": []
 }
 ```
 
-The exact default/cap values are enforced by the current handler/store implementation.
+`limit` defaults to 50 and is capped at 100; invalid/non-positive values fall back to 50. `offset` defaults to 0. The `status` filter accepts a comma-separated list.
 
 ### GET /api/v1/runs/{runID}
 
@@ -160,8 +157,7 @@ Returns:
 
 ```json
 {
-  "steps": [],
-  "total": 0
+  "steps": []
 }
 ```
 
@@ -173,8 +169,7 @@ Returns:
 
 ```json
 {
-  "events": [],
-  "total": 0
+  "events": []
 }
 ```
 
@@ -233,8 +228,7 @@ Response:
 
 ```json
 {
-  "policies": [],
-  "total": 0
+  "policies": []
 }
 ```
 
