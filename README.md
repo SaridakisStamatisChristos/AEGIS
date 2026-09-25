@@ -10,7 +10,7 @@ AegisRun places a policy-enforcement gateway between an AI agent and the tools i
 
 ## Why AegisRun
 
-- **Hard tool enforcement** — allow, warn, redact, block, degrade, or require approval before a tool call executes.
+- **Hard tool enforcement** — allow, warn, redact, block, degrade, or return a require-approval decision before tool execution.
 - **Policy-as-code** — versioned YAML/JSON policy specs with schema validation, conditions, budgets, egress controls, and redaction.
 - **Tamper-evident evidence** — hash-chained events, signed run evidence, exportable bundles, and an independent verifier CLI.
 - **Operational controls** — OIDC, RBAC, tenant isolation, rate limiting, Prometheus/OpenTelemetry instrumentation, health probes, HPA, network policy, backup/restore, canary and rollback tooling.
@@ -197,7 +197,7 @@ A policy is created through the API as a named document whose `spec` contains th
 }
 ```
 
-See [Policy DSL Reference](docs/POLICY_DSL.md) for the full policy-spec model.
+See [Policy DSL Reference](docs/POLICY_DSL.md) for the full policy-spec model. **Current limitation:** a runtime `require_approval` tool decision is recorded/returned, but pending tool-call approval and resume execution are not yet implemented; the existing `/approvals` API is for policy-version approval.
 
 ## Evidence bundles
 
