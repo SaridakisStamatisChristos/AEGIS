@@ -52,7 +52,7 @@ jobs:
         env:
           DATABASE_URL: postgres://aegisrun:aegisrun@localhost:5432/aegisrun_test?sslmode=disable
         run: |
-          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1
           migrate -path migrations -database "$DATABASE_URL" up
 
       - name: Run tests
@@ -351,7 +351,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Install migrate
-        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1
 
       - name: Run migrations up
         env:
