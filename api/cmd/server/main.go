@@ -20,6 +20,9 @@ import (
 	"go.uber.org/zap"
 )
 
+// version is injected by the release build via -ldflags.
+var version = "dev"
+
 func main() {
 	// Initialize logger
 	logger, err := zap.NewProduction()
@@ -32,10 +35,11 @@ func main() {
 	}()
 
 	logger.Info("starting AegisRun API server",
-		zap.String("version", "1.0.0"))
+		zap.String("version", version))
 
 	// Initialize distributed tracing (OpenTelemetry)
 	tracingCfg := telemetry.DefaultTracingConfig()
+	tracingCfg.ServiceVersion = version
 	shutdownTracer, err := telemetry.InitTracer(context.Background(), tracingCfg, logger)
 	if err != nil {
 		logger.Fatal("failed to initialize tracing", zap.Error(err))
@@ -145,6 +149,7 @@ func main() {
 
 	// Create server
 	srv := server.New(server.Config{
+		Version:           version,
 		Port:              cfg.Port,
 		CORSAllowOrigin:   cfg.CORSAllowOrigin,
 		RateLimitRPS:      cfg.RateLimitRPS,
