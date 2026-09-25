@@ -329,7 +329,7 @@ Response:
 | require_approval | 202 |
 | unexpected/internal failure | 500 |
 
-The current gateway returns a require-approval decision but does not synchronously execute the pending tool call. Approval orchestration is a separate workflow.
+The current gateway returns a `require_approval` decision, but pending tool-call approval/resume execution is **not implemented in this iteration**. The `/approvals` endpoints documented above are policy-version approvals, not pending tool-call approvals.
 
 ## 8. Evidence
 
