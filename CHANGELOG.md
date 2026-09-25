@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgraded `go-chi/chi/v5` to 5.3.2 and `go-jose/go-jose/v3` to 3.0.5.
 - Upgraded OpenTelemetry to 1.44.0 and gRPC to 1.83.2 to clear reachable 2026 vulnerability findings.
 - Refreshed CI/security runtimes and actions to Node 24-compatible versions, pinned security scanners, and moved Go validation/builds to 1.27.1.
+- Hardened tag releases with main-branch ancestry checks, package-version/tag matching, pinned release tooling, and release-time govulncheck.
+- Added GitHub Actions workflow linting to the normal CI gate.
+
+### Fixed
+- Removed duplicate tag-triggered publishing from the deployment workflow so `release.yml` is the sole owner of SDK publishing and GitHub Release creation.
+- Fixed manual production deployment being skipped when staging was not selected.
+- Made the release-gate verdict fail closed when a required job is skipped; only explicitly optional E2E/load jobs may be skipped.
+- Packaged a pinned migration CLI in the API image and run migrations in a one-shot Kubernetes Job from the candidate image before production rollout.
+- Fixed deployment image rewrites to target the actual Kustomize image names and normalized GHCR image names to lowercase.
 
 ## [1.0.0] - 2026-02-21
 
