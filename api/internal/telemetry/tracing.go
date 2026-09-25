@@ -19,7 +19,7 @@ import (
 // TracingConfig holds configuration for the OpenTelemetry tracer.
 type TracingConfig struct {
 	ServiceName    string  // e.g. "aegisrun-api"
-	ServiceVersion string  // e.g. "1.0.0"
+	ServiceVersion string  // e.g. "1.0.1"
 	OTLPEndpoint   string  // e.g. "localhost:4317" (gRPC) – empty disables export
 	SampleRatio    float64 // 0.0 – 1.0; default 1.0 (sample everything)
 }
@@ -30,7 +30,7 @@ func DefaultTracingConfig() TracingConfig {
 	ratio := 1.0
 	return TracingConfig{
 		ServiceName:    envOr("OTEL_SERVICE_NAME", "aegisrun-api"),
-		ServiceVersion: envOr("OTEL_SERVICE_VERSION", "1.0.0"),
+		ServiceVersion: envOr("OTEL_SERVICE_VERSION", "dev"),
 		OTLPEndpoint:   envOr("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 		SampleRatio:    ratio,
 	}
