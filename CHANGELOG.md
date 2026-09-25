@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Made the release-gate verdict fail closed when a required job is skipped; only explicitly optional E2E/load jobs may be skipped.
 - Packaged a pinned migration CLI in the API image and run migrations in a one-shot Kubernetes Job from the candidate image before production rollout, using the existing API/Postgres NetworkPolicy path.
 - Fixed deployment image rewrites to target the actual Kustomize image names, normalized GHCR image names to lowercase, and made production reuse immutable release-image digests instead of rebuilding published artifacts.
+- Added explicit release workflow dispatch support for controlled tag-release execution and recovery.
 
 ## [1.0.0] - 2026-02-21
 
