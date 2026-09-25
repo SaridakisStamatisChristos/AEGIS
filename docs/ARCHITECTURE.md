@@ -102,7 +102,7 @@ execute when permitted
 persist/redact response + counters + event evidence
 ```
 
-The gateway returns different HTTP statuses according to the policy result: normal allowed/warn/redact decisions return 200, block returns 403, and require-approval returns 202.
+The gateway returns different HTTP statuses according to the policy result: normal allowed/warn/redact decisions return 200, block returns 403, and require-approval returns 202. Runtime approval/resume of the pending tool call is not yet implemented; current approval endpoints govern policy versions.
 
 ### 3.3 PostgreSQL
 
