@@ -19,6 +19,7 @@ import (
 )
 
 type Config struct {
+	Version           string
 	Port              int
 	CORSAllowOrigin   string
 	RateLimitRPS      float64 // requests per second per IP (0 = disabled)
@@ -112,7 +113,7 @@ func (s *Server) setupMiddleware() {
 
 func (s *Server) setupRoutes() {
 	// Health check (public)
-	healthHandler := handlers.NewHealthHandler(s.deps.Store)
+	healthHandler := handlers.NewHealthHandler(s.deps.Store, s.config.Version)
 	s.router.Get("/health", healthHandler.Health)
 	s.router.Get("/ready", healthHandler.Ready)
 

@@ -1,6 +1,6 @@
 {
   "name": "@aegisrun/sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "AegisRun TypeScript SDK - Agent Control Plane with policy enforcement",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -11,7 +11,13 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "prepublishOnly": "npm run build"
   },
-  "keywords": ["agent", "control-plane", "policy", "governance", "ai"],
+  "keywords": [
+    "agent",
+    "control-plane",
+    "policy",
+    "governance",
+    "ai"
+  ],
   "author": "AegisRun Team",
   "license": "Apache-2.0",
   "dependencies": {

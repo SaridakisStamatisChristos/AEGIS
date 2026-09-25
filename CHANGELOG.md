@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-09-25
+
 ### Security
 - Replaced spoofable `chi/middleware.RealIP` handling with explicit, fail-closed client-IP trust for logging and rate limiting.
 - Upgraded `go-chi/chi/v5` to 5.3.2 and `go-jose/go-jose/v3` to 3.0.5.
@@ -116,4 +118,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [API_REFERENCE.md](docs/API_REFERENCE.md) - REST API documentation
 - Architecture Decision Records (ADRs) for key design choices
 
-[1.0.0]: https://github.com/aegisrun/aegisrun/releases/tag/v1.0.0
+[1.0.1]: https://github.com/SaridakisStamatisChristos/AEGIS/releases/tag/v1.0.1
+[1.0.0]: https://github.com/SaridakisStamatisChristos/AEGIS/releases/tag/v1.0.0

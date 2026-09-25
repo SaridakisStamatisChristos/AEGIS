@@ -8,11 +8,15 @@ import (
 )
 
 type HealthHandler struct {
-	store *store.Store
+	store   *store.Store
+	version string
 }
 
-func NewHealthHandler(store *store.Store) *HealthHandler {
-	return &HealthHandler{store: store}
+func NewHealthHandler(store *store.Store, version string) *HealthHandler {
+	if version == "" {
+		version = "dev"
+	}
+	return &HealthHandler{store: store, version: version}
 }
 
 type HealthResponse struct {
@@ -23,7 +27,7 @@ type HealthResponse struct {
 func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 	resp := HealthResponse{
 		Status:  "ok",
-		Version: "1.0.0",
+		Version: h.version,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
