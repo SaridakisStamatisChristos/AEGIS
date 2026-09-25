@@ -34,7 +34,7 @@ jobs:
         working-directory: ./ui
         run: |
           npm install --package-lock-only --ignore-scripts
-          npm audit fix --package-lock-only --omit=dev --ignore-scripts
+          npm audit fix --package-lock-only --omit=dev --ignore-scripts || true
           npm audit --omit=dev --audit-level=high
 
       - name: Resolve TypeScript SDK lockfile with npm
