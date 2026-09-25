@@ -95,7 +95,17 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
         working-directory: ./sdk/typescript
 
-      - name: Run Trivy vulnerability scanner (Go API)
+      - name: Gate Trivy findings (Go API)
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: './api'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Generate Trivy SARIF (Go API)
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -104,9 +114,26 @@ jobs:
           format: 'sarif'
           output: 'trivy-api.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Upload Trivy results (Go API)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-api.sarif
+          category: trivy-api
+
+      - name: Gate Trivy findings (Verifier)
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: './verifier'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
-      - name: Run Trivy vulnerability scanner (Verifier)
+      - name: Generate Trivy SARIF (Verifier)
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -115,9 +142,26 @@ jobs:
           format: 'sarif'
           output: 'trivy-verifier.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Upload Trivy results (Verifier)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-verifier.sarif
+          category: trivy-verifier
+
+      - name: Gate Trivy findings (UI)
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: './ui'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
-      - name: Run Trivy vulnerability scanner (UI)
+      - name: Generate Trivy SARIF (UI)
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -126,9 +170,26 @@ jobs:
           format: 'sarif'
           output: 'trivy-ui.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Upload Trivy results (UI)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-ui.sarif
+          category: trivy-ui
+
+      - name: Gate Trivy findings (Python SDK)
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: './sdk/python'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
-      - name: Run Trivy vulnerability scanner (Python SDK)
+      - name: Generate Trivy SARIF (Python SDK)
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -137,9 +198,26 @@ jobs:
           format: 'sarif'
           output: 'trivy-python-sdk.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Upload Trivy results (Python SDK)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-python-sdk.sarif
+          category: trivy-python-sdk
+
+      - name: Gate Trivy findings (TypeScript SDK)
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: './sdk/typescript'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
-      - name: Run Trivy vulnerability scanner (TypeScript SDK)
+      - name: Generate Trivy SARIF (TypeScript SDK)
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -148,37 +226,9 @@ jobs:
           format: 'sarif'
           output: 'trivy-ts-sdk.sarif'
           severity: 'CRITICAL,HIGH'
-          exit-code: '1'
+          exit-code: '0'
 
-      - name: Upload API Trivy results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-api.sarif
-          category: trivy-api
-
-      - name: Upload Verifier Trivy results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-verifier.sarif
-          category: trivy-verifier
-
-      - name: Upload UI Trivy results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-ui.sarif
-          category: trivy-ui
-
-      - name: Upload Python SDK Trivy results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-python-sdk.sarif
-          category: trivy-python-sdk
-
-      - name: Upload TypeScript SDK Trivy results
+      - name: Upload Trivy results (TypeScript SDK)
         if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
@@ -215,7 +265,16 @@ jobs:
           load: true
           tags: aegisrun-ui:scan
 
-      - name: Scan API image
+      - name: Gate container findings (API)
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: 'aegisrun-api:scan'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Generate container SARIF (API)
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -223,9 +282,25 @@ jobs:
           format: 'sarif'
           output: 'trivy-container-api.sarif'
           severity: 'CRITICAL,HIGH'
+          exit-code: '0'
+
+      - name: Upload container results (API)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-container-api.sarif
+          category: container-api
+
+      - name: Gate container findings (UI)
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: 'aegisrun-ui:scan'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
           exit-code: '1'
 
-      - name: Scan UI image
+      - name: Generate container SARIF (UI)
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -233,16 +308,9 @@ jobs:
           format: 'sarif'
           output: 'trivy-container-ui.sarif'
           severity: 'CRITICAL,HIGH'
-          exit-code: '1'
+          exit-code: '0'
 
-      - name: Upload API container scan results
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: trivy-container-api.sarif
-          category: container-api
-
-      - name: Upload UI container scan results
+      - name: Upload container results (UI)
         if: always()
         uses: github/codeql-action/upload-sarif@v4
         with:
