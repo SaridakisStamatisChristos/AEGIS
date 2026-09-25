@@ -10,6 +10,8 @@
 
 This document describes the policy **specification**. When creating a policy through the HTTP API, wrap the spec in the current request shape: `{"name":"...","spec":{...}}`. See [API_REFERENCE.md](API_REFERENCE.md).
 
+**Runtime approval limitation:** the `require_approval` action is a valid gateway decision, but pending tool-call approval/resume execution is not yet implemented. The current `/approvals` API approves or rejects policy versions.
+
 
 AegisRun policies are defined in YAML and enforce constraints on agent tool usage. Policies support:
 
