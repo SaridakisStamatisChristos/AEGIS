@@ -1,241 +1,252 @@
 # AegisRun System Architecture
 
-**Version**: 1.0.0  
-**Last Updated**: 2026-02-03  
-**Authors**: AegisRun Architecture Team
+**Application baseline:** v1.0.1  
+**Evidence bundle format:** 1.0.0  
+**Reviewed:** 2026-09-25
 
----
+## 1. Purpose
 
-## 1. Overview
+AegisRun is a self-hosted control plane for enforcing policy around AI-agent tool use. Its central invariant is that tool execution is routed through a gateway that evaluates policy before execution and records the resulting decision/evidence.
 
-AegisRun is a production-grade Agent Control Plane that provides:
-- Hard enforcement of tool use (not just logging)
-- Policy-as-code with approvals, versioning, and audit trail
-- Tamper-evident evidence ledger + offline verifiable evidence bundles
-- Run/step/tool telemetry + operational dashboards
-- Replay (best-effort deterministic) + forensic timeline UI
-- SDKs for Python and TypeScript to instrument any agent workflow
-- Self-hosted deployment with SSO + RBAC + multi-tenant isolation
+The platform combines:
 
----
+- hard tool-use enforcement;
+- versioned policy specifications;
+- runtime budgets and egress controls;
+- redaction and approval decisions;
+- OIDC/RBAC and tenant scoping;
+- tamper-evident event chains and signed run evidence;
+- offline evidence verification;
+- observability and production-oriented deployment controls.
 
-## 2. C4-Lite Context Diagram
+## 2. System context
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      AegisRun System                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌──────────────┐      ┌──────────────┐                   │
-│  │ Agent (Py/TS)│─────>│ Tool Gateway │                   │
-│  │ + SDK        │      │ (Policy Enf) │                   │
-│  └──────────────┘      └──────┬───────┘                   │
-│                               │                            │
-│                               ▼                            │
-│  ┌──────────────┐      ┌──────────────┐                   │
-│  │ Web UI       │─────>│ API Server   │                   │
-│  │ (React)      │      │ (Go/Chi)     │                   │
-│  └──────────────┘      └──────┬───────┘                   │
-│                               │                            │
-│                               ▼                            │
-│                        ┌──────────────┐                   │
-│                        │  PostgreSQL  │                   │
-│                        │ (Ledger+Jobs)│                   │
-│                        └──────────────┘                   │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐ │
-│  │         Evidence Verifier CLI (Offline)              │ │
-│  └──────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+```text
++------------------+
+| Agent workload   |
+| Python / TS SDK  |
++--------+---------+
+         |
+         v
++---------------------------+
+| AegisRun API / Tool       |
+| Gateway (Go + Chi)        |
++-------+-------------------+
+        |
+        +----> Policy compiler/evaluator
+        |
+        +----> Tool executor registry
+        |
+        +----> PostgreSQL
+        |       runs / steps / calls / events /
+        |       policies / approvals / keys
+        |
+        +----> Prometheus + OpenTelemetry
+        |
+        +----> Evidence bundle export
+                    |
+                    v
+            +------------------+
+            | Offline verifier |
+            +------------------+
 
-External: OIDC Provider, Agent Workloads
-```
-
----
-
-## 3. Component Architecture
-
-### 3.1 API Server (Go)
-Single-binary monolith using Chi router:
-- **cmd/server/main.go** - Entry point, configuration, dependency injection
-- **internal/server/** - HTTP handlers, middleware, routing
-- **internal/gateway/** - Tool call enforcement, budget tracking
-- **internal/policy/** - Policy compiler, CEL parser, evaluator
-- **internal/ledger/** - Event hashing, signing, bundling
-- **internal/auth/** - OIDC integration, RBAC
-- **internal/store/** - PostgreSQL repositories
-- **internal/redaction/** - PII/secrets masking
-- **internal/telemetry/** - Metrics, structured logging
-
-### 3.2 Database (PostgreSQL)
-Single database with these core tables:
-- `organizations` - Multi-tenant isolation
-- `users` - OIDC subjects + roles
-- `policies` - Versioned policy specs
-- `approvals` - Policy approval workflow
-- `runs` - Agent execution sessions
-- `steps` - Logical work units within runs
-- `tool_calls` - Individual tool invocations
-- `events` - Append-only ledger with hash chaining
-- `signing_keys` - Ed25519 key pairs
-- `audit_log` - Admin action trail
-
-### 3.3 SDKs (Python + TypeScript)
-Identical API surface:
-```python
-run = AegisRun.start_run(metadata, policy_ref, state_schema_ref)
-run.step(name, state_vector, fn)  # Wrapper
-run.tool_call(tool_name, args, executor_fn)  # Routes through gateway
+React UI ----------> AegisRun API
+OIDC provider -----> bearer-token authentication
 ```
 
-Features:
-- Automatic event emission (start/stop timestamps, spans, errors)
-- Offline mode buffer (queue locally if server unavailable)
-- Retry classification
+## 3. Core components
 
-### 3.4 Web UI (React)
-Single-page application with:
-- Run Explorer (filters, timeline view)
-- Policy Studio (YAML editor, version history)
-- Approvals (queue, audit trail)
-- Evidence (export, verification status)
+### 3.1 API and gateway
 
-### 3.5 Evidence Verifier (CLI)
-Offline tool for verifying evidence bundles:
-```bash
-aegis-verify bundle.zip
-```
-Checks: hash chain integrity, signatures, policy immutability, approvals.
+The API is a Go service using Chi. The main code areas are:
 
----
+- `api/cmd/server/` — bootstrap and production configuration validation;
+- `api/internal/server/` — routing, middleware and HTTP handlers;
+- `api/internal/gateway/` — the central tool-call enforcement path;
+- `api/internal/policy/` — policy compilation/evaluation;
+- `api/internal/redaction/` — redaction logic;
+- `api/internal/ledger/` — event hashing, signing and evidence bundling;
+- `api/internal/store/` — PostgreSQL persistence;
+- `api/internal/auth/` — OIDC verification, RBAC and org isolation;
+- `api/internal/telemetry/` — Prometheus/OpenTelemetry instrumentation.
 
-## 4. Data Flow
+The API binary version is injected at build time and is used by startup logs, telemetry service-version metadata, and the public `/health` response.
 
-### 4.1 Tool Call Flow
-```
-SDK → Gateway → Policy Evaluator → Tool Executor → Response
-  │       │           │                │              │
-  │       │           │                │              │
-  └───────┴───────────┴────────────────┴──────────────┘
-              │                    │
-              ▼                    ▼
-          Event Ledger        Run Counters
-```
+### 3.2 Gateway enforcement flow
 
-### 4.2 Event Chain
-```
-Event 0 (run.started)
-    │
-    ├── event_hash = SHA256(canonical_json || "")
-    │
-Event 1 (step.started)
-    │
-    ├── event_hash = SHA256(canonical_json || prev_hash)
-    │
-Event N (run.ended)
-    │
-    └── evidence_hash = SHA256(last_hash || policy_hash || outcome)
-```
-
----
-
-## 5. Security Architecture
-
-### 5.1 Authentication
-- OIDC-based (Auth0, Okta, Google)
-- JWT tokens in Authorization header
-- Session management via database
-
-### 5.2 Authorization (RBAC)
-Roles: `viewer`, `developer`, `policy_admin`, `approver`, `org_admin`
-
-Permissions per role:
-- `viewer`: Read runs, policies, evidence
-- `developer`: + Create runs, export evidence
-- `policy_admin`: + Create/edit policies
-- `approver`: + Approve policies
-- `org_admin`: Full access including user/key management
-
-### 5.3 Multi-Tenant Isolation
-- Every table includes `org_id`
-- All queries filtered by authenticated user's org
-- Database-level enforcement via row-level security (optional)
-
-### 5.4 Data Protection
-- PII redacted at ingestion (emails, phones, credit cards, API keys)
-- Secrets never stored in plaintext
-- Private IP ranges blocked by default (SSRF protection)
-
----
-
-## 6. Technology Stack
-
-| Component | Technology | Version |
-|-----------|------------|---------|
-| API Server | Go | 1.23.5 |
-| Router | chi/v5 | 5.0.12 |
-| Database | PostgreSQL | 15+ |
-| Frontend | React | 18.2.0 |
-| Build | Vite | 5.0.8 |
-| CSS | Tailwind | 3.3.6 |
-| Python SDK | Python | 3.9+ |
-| TS SDK | TypeScript | 5.2+ |
-| Signing | Ed25519 | crypto/ed25519 |
-| Hashing | SHA256 | crypto/sha256 |
-
----
-
-## 7. Deployment Architecture
-
-### 7.1 Docker Compose (Development)
-```yaml
-services:
-  - postgres (database)
-  - api (Go server)
-  - ui (React app via nginx)
+```text
+authenticated request
+      |
+      v
+load run + referenced policy
+      |
+      v
+compile policy
+      |
+      v
+validate budget / args / conditions / egress
+      |
+      v
+policy decision
+  | allow/warn/redact/degrade
+  | block
+  | require_approval
+      |
+      v
+persist tool-call decision + event evidence
+      |
+      v
+execute when permitted
+      |
+      v
+persist/redact response + counters + event evidence
 ```
 
-### 7.2 Kubernetes (Production)
-```
-namespace: aegisrun
-├── api-deployment (2+ replicas)
-├── api-service (ClusterIP)
-├── ui-deployment (2+ replicas)
-├── ui-service (ClusterIP)
-├── postgres-statefulset (1 replica + PVC)
-├── postgres-service (ClusterIP)
-├── ingress (TLS termination)
-└── configmap/secrets
-```
+The gateway returns different HTTP statuses according to the policy result: normal allowed/warn/redact decisions return 200, block returns 403, and require-approval returns 202.
 
----
+### 3.3 PostgreSQL
 
-## 8. Scalability Considerations
+PostgreSQL is the persistence layer for runs, steps, tool calls, events, policies, approvals and signing-key metadata. Event records form an append-only hash chain per run.
 
-### 8.1 Horizontal Scaling
-- API server is stateless (scale horizontally)
-- Database is single point (consider read replicas)
-- Event ordering uses advisory locks per run
+The production-oriented Kubernetes manifests currently deploy PostgreSQL as a StatefulSet. Operators needing managed HA PostgreSQL should replace this persistence topology without changing the application contract.
 
-### 8.2 Performance Targets
-- Gateway latency: P99 < 50ms
-- Event ingestion: 10k events/sec
-- Concurrent runs: 1000/node
+### 3.4 SDKs
 
-### 8.3 Bottlenecks
-- Database writes (mitigate: batch inserts, connection pooling)
-- Policy compilation (mitigate: cache compiled policies)
-- Evidence bundling (mitigate: async job queue)
+AegisRun contains Python and TypeScript SDKs. They model run/step/tool-call flows and emit lifecycle evidence to the API.
 
----
+For v1.0.1, the SDK source can be installed/built directly from the repository. Public PyPI/npm publication is pending registry authentication setup.
 
-## 9. Related Documents
+### 3.5 Web UI
 
-- [CONTRACTS.md](CONTRACTS.md) - Data schemas and API contracts
-- [POLICY_DSL.md](POLICY_DSL.md) - Policy language reference
-- [EVIDENCE_FORMAT.md](EVIDENCE_FORMAT.md) - Bundle format specification
-- [DEPLOYMENT.md](DEPLOYMENT.md) - Deployment guide
-- [ADR/001-single-binary-api.md](ADR/001-single-binary-api.md) - Monolith decision
-- [ADR/002-postgres-as-queue.md](ADR/002-postgres-as-queue.md) - No external MQ
-- [ADR/003-ed25519-signing.md](ADR/003-ed25519-signing.md) - Crypto choice
-- [ADR/004-cel-subset.md](ADR/004-cel-subset.md) - Expression language
+The React UI provides operator-facing views for runs, policies, approvals, evidence and aggregate statistics.
+
+### 3.6 Evidence verifier
+
+The standalone verifier consumes exported ZIP bundles without requiring the AegisRun server.
+
+The current bundle includes:
+
+- `manifest.json`;
+- `events.jsonl`;
+- `policy_snapshot.json`;
+- `run.json`;
+- `public_key.pem` when a signer key is available;
+- `README.txt`.
+
+See [EVIDENCE_FORMAT.md](EVIDENCE_FORMAT.md).
+
+## 4. Security architecture
+
+### 4.1 Authentication and authorization
+
+All `/api/v1/*` routes require bearer-token authentication. Authorization is permission-based through RBAC. Tenant-scoped resource handlers also enforce organization isolation.
+
+Production startup rejects unsafe/default configuration such as mock OIDC, default database credentials, disabled DB TLS, or invalid CORS/rate-limit settings.
+
+### 4.2 Client-IP trust
+
+AegisRun does not trust forwarding headers by default.
+
+- `CLIENT_IP_MODE=remote_addr` uses the TCP peer address.
+- `CLIENT_IP_MODE=xff_trusted_proxies` is accepted only with a positive exact `TRUSTED_PROXY_COUNT`.
+
+The normalized client IP is shared by request logging and per-IP rate limiting, avoiding disagreement between security controls.
+
+### 4.3 Container and Kubernetes baseline
+
+Production-oriented manifests include:
+
+- non-root workloads;
+- read-only root filesystems where applicable;
+- dropped privileges/capabilities;
+- liveness/readiness probes;
+- NetworkPolicy;
+- HPA;
+- PodDisruptionBudget.
+
+The API runtime is Alpine 3.24 in v1.0.1.
+
+## 5. Evidence integrity model
+
+Each event records its previous event hash and its own hash. Completed run evidence contains an evidence/root hash and signature metadata.
+
+The exported bundle embeds the signature fields in `manifest.json`; it does **not** use a separate `signature.json` file in the current format.
+
+The verifier checks:
+
+1. event-chain integrity;
+2. run/policy evidence consistency;
+3. Ed25519 signature validity when signing material is present.
+
+The application release version and evidence bundle format are independent. AegisRun v1.0.1 continues to emit evidence bundle format 1.0.0.
+
+## 6. Observability
+
+- Prometheus metrics endpoint: `/metrics`;
+- OpenTelemetry tracing;
+- structured request/application logging;
+- health endpoint: `/health`;
+- readiness endpoint: `/ready`;
+- Grafana/Prometheus operational assets under `ops/`.
+
+## 7. Deployment architecture
+
+### Development
+
+`docker-compose.yml` starts PostgreSQL, the API, and UI with development-safe defaults. It is explicitly **not** the production configuration.
+
+### Production-oriented Kubernetes
+
+Canonical manifests live under `ops/k8s/`.
+
+Production deployment uses already-published release image digests rather than rebuilding the release. Database migrations run in a one-shot Kubernetes Job from the candidate API image before rollout.
+
+## 8. Release supply chain
+
+The release path validates:
+
+- SemVer tag shape;
+- tagged commit ancestry on `main`;
+- Python/TypeScript/UI version parity with the tag;
+- Go vulnerability status;
+- high/critical Trivy findings;
+- SBOM generation.
+
+Release image builds enable SBOM/provenance metadata and explicit GitHub attestations. The v1.0.1 GitHub Release contains verifier binaries, checksums and SBOM files.
+
+PyPI/npm are separate distribution channels and currently require publishing authentication to be completed.
+
+## 9. Current technology baseline
+
+| Component | Current baseline |
+|---|---|
+| API language | Go module baseline 1.25.0; CI/release toolchain 1.27.1 |
+| HTTP router | chi/v5 5.3.2 |
+| Database | PostgreSQL 15+ |
+| UI | React 18.2.x |
+| UI build | Vite 7.3.x |
+| CSS | Tailwind 3.4.x |
+| TypeScript | 5.x |
+| Release Node.js | 24.21.0 |
+| Python SDK | Python 3.9+ |
+| OpenTelemetry | 1.44.0 family |
+| gRPC | 1.83.2 |
+| API runtime image | Alpine 3.24 |
+| Signing | Ed25519 |
+| Event hashing | SHA-256 |
+
+Dependency lockfiles and module manifests are authoritative if this table ever drifts.
+
+## 10. Performance and scalability
+
+The API is designed to be horizontally scalable; PostgreSQL remains the central persistence dependency. Performance targets in tests/runbooks should be treated as **release thresholds or engineering targets**, not universal benchmark guarantees. Real capacity depends on database sizing, policy complexity, tool latency and workload shape.
+
+## 11. Related documentation
+
+- [API_REFERENCE.md](API_REFERENCE.md)
+- [CONTRACTS.md](CONTRACTS.md)
+- [POLICY_DSL.md](POLICY_DSL.md)
+- [EVIDENCE_FORMAT.md](EVIDENCE_FORMAT.md)
+- [DEPLOYMENT.md](DEPLOYMENT.md)
+- [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
+- [ROLLBACK_PLAYBOOK.md](ROLLBACK_PLAYBOOK.md)
