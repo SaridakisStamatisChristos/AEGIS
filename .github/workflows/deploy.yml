@@ -18,6 +18,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
+  GO_VERSION: '1.27.1'
 
 jobs:
   deployment-preflight:
@@ -228,6 +229,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install kustomize
+        run: go install sigs.k8s.io/kustomize/kustomize/v5@v5.8.1
+
       - name: Set up kubectl
         uses: azure/setup-kubectl@v5
         with:
@@ -241,8 +250,8 @@ jobs:
       - name: Update image tags
         run: |
           cd ops/k8s
-          kustomize edit set image api-image=${{ needs.build-api.outputs.image-name }}@${{ needs.build-api.outputs.image-digest }}
-          kustomize edit set image ui-image=${{ needs.build-ui.outputs.image-name }}@${{ needs.build-ui.outputs.image-digest }}
+          kustomize edit set image ghcr.io/aegisrun/aegisrun/api=${{ needs.build-api.outputs.image-name }}@${{ needs.build-api.outputs.image-digest }}
+          kustomize edit set image ghcr.io/aegisrun/aegisrun/ui=${{ needs.build-ui.outputs.image-name }}@${{ needs.build-ui.outputs.image-digest }}
 
       - name: Deploy to staging
         run: |
@@ -289,6 +298,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install kustomize
+        run: go install sigs.k8s.io/kustomize/kustomize/v5@v5.8.1
+
       - name: Set up kubectl
         uses: azure/setup-kubectl@v5
         with:
@@ -299,19 +316,60 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > kubeconfig
           echo "KUBECONFIG=$(pwd)/kubeconfig" >> $GITHUB_ENV
 
-      - name: Run database migrations
+      - name: Run database migrations from the candidate image
         run: |
-          kubectl -n aegisrun exec deploy/aegisrun-api -- sh -c '
-            PGUSER="$DB_USER" PGPASSWORD="$DB_PASSWORD"             /app/migrate               -path /app/migrations               -database "postgres://$DB_HOST:$DB_PORT/$DB_NAME?sslmode=$DB_SSL_MODE"               up
-          '
+          cat <<'EOF' | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: aegisrun-migrate-${{ github.run_id }}
+            namespace: aegisrun
+          spec:
+            backoffLimit: 0
+            ttlSecondsAfterFinished: 300
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: aegisrun
+                  app.kubernetes.io/component: migration
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: migrate
+                    image: ${{ needs.build-api.outputs.image-name }}@${{ needs.build-api.outputs.image-digest }}
+                    command: ["/bin/sh", "-c"]
+                    args:
+                      - |
+                        PGUSER="$DB_USER" PGPASSWORD="$DB_PASSWORD" \
+                        /app/migrate \
+                          -path /app/migrations \
+                          -database "postgres://$DB_HOST:$DB_PORT/$DB_NAME?sslmode=$DB_SSL_MODE" \
+                          up
+                    envFrom:
+                      - configMapRef:
+                          name: aegisrun-config
+                      - secretRef:
+                          name: aegisrun-secrets
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                        drop:
+                          - ALL
+          EOF
+
+          if ! kubectl -n aegisrun wait --for=condition=complete "job/aegisrun-migrate-${{ github.run_id }}" --timeout=300s; then
+            kubectl -n aegisrun logs "job/aegisrun-migrate-${{ github.run_id }}" || true
+            exit 1
+          fi
+          kubectl -n aegisrun logs "job/aegisrun-migrate-${{ github.run_id }}"
 
       - name: Update image tags
         run: |
           cd ops/k8s
-          kustomize edit set image api-image=${{ needs.build-api.outputs.image-name }}@${{ needs.build-api.outputs.image-digest }}
-          kustomize edit set image ui-image=${{ needs.build-ui.outputs.image-name }}@${{ needs.build-ui.outputs.image-digest }}
+          kustomize edit set image ghcr.io/aegisrun/aegisrun/api=${{ needs.build-api.outputs.image-name }}@${{ needs.build-api.outputs.image-digest }}
+          kustomize edit set image ghcr.io/aegisrun/aegisrun/ui=${{ needs.build-ui.outputs.image-name }}@${{ needs.build-ui.outputs.image-digest }}
 
-      - name: Deploy to production (canary)
+      - name: Deploy to production
         run: |
           kubectl apply -k ops/k8s
           kubectl -n aegisrun rollout status deployment/aegisrun-api --timeout=300s
