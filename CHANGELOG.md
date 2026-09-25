@@ -19,8 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Removed duplicate tag-triggered publishing from the deployment workflow so `release.yml` is the sole owner of SDK publishing and GitHub Release creation.
 - Fixed manual production deployment being skipped when staging was not selected.
 - Made the release-gate verdict fail closed when a required job is skipped; only explicitly optional E2E/load jobs may be skipped.
-- Packaged a pinned migration CLI in the API image and run migrations in a one-shot Kubernetes Job from the candidate image before production rollout.
-- Fixed deployment image rewrites to target the actual Kustomize image names and normalized GHCR image names to lowercase.
+- Packaged a pinned migration CLI in the API image and run migrations in a one-shot Kubernetes Job from the candidate image before production rollout, using the existing API/Postgres NetworkPolicy path.
+- Fixed deployment image rewrites to target the actual Kustomize image names, normalized GHCR image names to lowercase, and made production reuse immutable release-image digests instead of rebuilding published artifacts.
 
 ## [1.0.0] - 2026-02-21
 
