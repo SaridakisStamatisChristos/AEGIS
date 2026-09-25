@@ -1,114 +1,83 @@
 # Release Checklist Filler Instructions
 
-Use this guide to gather and paste evidence into `docs/RELEASE_CHECKLIST.md`.
+**Reviewed:** 2026-09-25
 
----
+Use this guide to fill [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 
-## 1) Run local verification evidence (Windows)
+## 1. Record candidate identity
 
-From repository root:
+Capture version, candidate ref, exact SHA, intended tag and changelog entry. Verify Python SDK, TypeScript SDK and UI versions equal the intended version.
+
+## 2. Local verification
+
+Linux/macOS:
+
+```bash
+make verify-all
+```
+
+Windows:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\scripts\verify-all.ps1
 ```
 
-Record:
-- Evidence directory path (example: `artifacts/verification/20260222T090503Z/`)
-- Any relevant log links/files for API, verifier, UI, TypeScript SDK
+Record the generated `artifacts/verification/<timestamp>/` directory.
 
----
+## 3. Release Gate
 
-## 2) Trigger release-branch gate workflow
+Record run URL/ID, head SHA, final verdict, security/SBOM, load threshold, canary, drill-cadence and SLO escalation results.
 
-Create and push a release branch:
+Use the final run for the exact candidate SHA; ignore superseded runs as final evidence.
 
-```powershell
-git checkout -b release/test-gate
-git push -u origin release/test-gate
+## 4. Tag
+
+```bash
+git tag -a v<VERSION> -m "AegisRun v<VERSION>"
+git push origin v<VERSION>
 ```
 
-This triggers `.github/workflows/release-gate.yml` automatically.
+The tag target must already be contained in `main`.
 
-In GitHub Actions, open the run and record:
-- Run URL
-- Run ID
+If a GitHub Actions job created the tag using `GITHUB_TOKEN` and Release did not trigger, explicitly dispatch the `Release` workflow on the tag.
 
-Required jobs to mark as passed:
-- `security-sbom`
-- `security-provenance`
-- `load-test`
-- `canary-health-gate`
-- `ops-drill-cadence`
-- `slo-escalation-gate`
-- `release-gate-verdict`
+## 5. Release workflow
 
-Also record artifact evidence:
-- `sbom-release-gate` artifact link
+Record each stage:
 
----
+- Release Preflight;
+- Release Security Gate;
+- Release SBOM;
+- Build and Push Images;
+- Publish Python SDK;
+- Publish TypeScript SDK;
+- Create Release.
 
-## 3) Trigger release-tag workflow
+Do not compress a one-channel failure into a misleading whole-release pass/fail.
 
-Create and push a release tag from the validated commit:
+## 6. Published artifacts
 
-```powershell
-git tag v0.0.0-rc1
-git push origin v0.0.0-rc1
-```
+GitHub Release:
 
-This triggers `.github/workflows/release.yml`.
+- URL/tag/SHA;
+- verifier binaries;
+- checksums;
+- SBOMs.
 
-In GitHub Actions, open the run and record:
-- Run URL
-- Run ID
+Containers:
 
-Required jobs to mark as passed:
-- `release-security-gate`
-- `release-sbom`
-- `build-and-push`
-- `publish-python-sdk`
-- `publish-typescript-sdk`
-- `create-release`
+- names/digests;
+- provenance/attestations.
 
-Also record artifact evidence:
-- `release-sbom` artifact link
+Registries:
 
----
+- PyPI status + install verification or exact pending reason;
+- npm status + install verification or exact pending reason.
 
-## 4) Attestation and on-call config evidence
+## 7. Deployment sections
 
-Record evidence links/screenshots for:
-- Image attestations: API, UI, verifier
-- SDK artifact attestations: Python + TypeScript package
-- Alertmanager environment values configured (without exposing secrets):
-  - `ALERTMANAGER_WEBHOOK_PRIMARY_URL`
-  - `ALERTMANAGER_WEBHOOK_SECONDARY_URL`
-  - `ALERTMANAGER_WEBHOOK_ESCALATION_URL`
+Fill canary/production sections only for a real deployment. Capture DB backup, migration, image digests, health/readiness, monitoring window and rollback target.
 
-Template file for endpoint values:
-- `ops/prometheus/alertmanager.env.example`
+## 8. v1.0.1 example
 
----
-
-## 5) Paste into `docs/RELEASE_CHECKLIST.md`
-
-Fill these sections:
-- **2. CI Pipeline Results** (run URL + run ID + job statuses)
-- **2. Security Checks**
-- **Operations Gate Checks** (`2.17`, `2.18`, `2.19`)
-- **4. Canary Deployment** (if run in staging)
-- Any notes in **Final Sign-Off**
-
----
-
-## Quick Copy Block (for PR description)
-
-```markdown
-### Release Evidence
-- Local verify-all evidence dir: <path>
-- Release-gate run URL: <url> (Run ID: <id>)
-- Release run URL: <url> (Run ID: <id>)
-- SBOM artifact links: <release-gate sbom>, <release sbom>
-- Attestation links: <api/ui/verifier/python/ts>
-- Alertmanager env config evidence (masked): <link/screenshot>
-```
+The core release/security/SBOM/image stages succeeded. PyPI/npm publishing authentication was absent, so those registry jobs failed. The original GitHub Release job was skipped by dependency, and a recovery workflow successfully published the GitHub Release/assets. Record such mixed outcomes explicitly.
