@@ -3,7 +3,7 @@
 Control plane for AI agents with hard policy enforcement.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 from .client import AegisRunClient
 from .events import EventEmitter
