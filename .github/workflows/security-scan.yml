@@ -319,8 +319,8 @@ jobs:
       - name: Check Go licenses
         run: |
           go install github.com/google/go-licenses/v2@v2.0.1
-          cd api && go-licenses check ./... --disallowed_types=forbidden,restricted
-          cd ../verifier && go-licenses check ./... --disallowed_types=forbidden,restricted
+          cd api && go-licenses check ./... --disallowed_types=forbidden,restricted --ignore github.com/aegisrun/aegisrun
+          cd ../verifier && go-licenses check ./... --disallowed_types=forbidden,restricted --ignore github.com/aegisrun/aegis-verify
 
       - name: Check npm licenses
         run: |
