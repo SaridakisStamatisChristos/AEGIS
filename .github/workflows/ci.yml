@@ -52,7 +52,7 @@ jobs:
         env:
           DATABASE_URL: postgres://aegisrun:aegisrun@localhost:5432/aegisrun_test?sslmode=disable
         run: |
-          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1
           migrate -path migrations -database "$DATABASE_URL" up
 
       - name: Run tests
@@ -93,6 +93,27 @@ jobs:
         with:
           working-directory: ./api
           version: v2.13.2
+
+  # ==========================================================================
+  # GitHub Actions Workflow Validation
+  # ==========================================================================
+  workflow-lint:
+    name: Workflow Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      - name: Validate GitHub Actions workflows
+        run: actionlint -color -shellcheck= -pyflakes=
 
   # ==========================================================================
   # Go Vulnerability Gate
@@ -260,12 +281,12 @@ jobs:
   unified-verify:
     name: Unified Verify Gate
     runs-on: ubuntu-latest
-    needs: [api-test, go-vulnerability, verifier-test, python-sdk-test, typescript-sdk-test, ui-build]
+    needs: [api-test, workflow-lint, go-vulnerability, verifier-test, python-sdk-test, typescript-sdk-test, ui-build]
 
     steps:
       - name: Verify upstream module gates passed
         run: |
-          echo "API, Verifier, Python SDK, TypeScript SDK, and UI gates all passed."
+          echo "API, workflow, vulnerability, Verifier, Python SDK, TypeScript SDK, and UI gates all passed."
 
   # ==========================================================================
   # Docker Build
@@ -330,7 +351,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Install migrate
-        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+        run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.20.1
 
       - name: Run migrations up
         env:

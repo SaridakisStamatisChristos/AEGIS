@@ -21,6 +21,9 @@ RUN npm run build
 # Runtime stage
 FROM nginx:alpine
 
+# Apply distribution security fixes that may land after the base image was published.
+RUN apk upgrade --no-cache
+
 # Copy nginx configuration
 COPY <<EOF /etc/nginx/conf.d/default.conf
 server {

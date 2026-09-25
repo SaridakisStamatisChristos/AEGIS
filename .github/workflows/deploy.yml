@@ -1,9 +1,6 @@
 name: Deploy
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       environment:
@@ -15,54 +12,89 @@ on:
           - staging
           - production
 
+concurrency:
+  group: deploy-${{ inputs.environment }}
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
-  API_IMAGE: ghcr.io/${{ github.repository }}/api
-  UI_IMAGE: ghcr.io/${{ github.repository }}/ui
-  VERIFIER_IMAGE: ghcr.io/${{ github.repository }}/verifier
-  GO_VERSION: '1.23'
-  NODE_VERSION: '20'
+  GO_VERSION: '1.27.1'
 
 jobs:
+  deployment-preflight:
+    name: Deployment Preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Validate deployment target
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            if [[ ! "$GITHUB_REF" =~ ^refs/tags/v ]]; then
+              echo "::error::Production deployment must be dispatched from a v* release tag."
+              exit 1
+            fi
+
+            RELEASE_JSON="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,tagName)"
+            if [ "$(printf '%s' "$RELEASE_JSON" | jq -r '.isDraft')" != "false" ]; then
+              echo "::error::Production deployment requires a published GitHub Release."
+              exit 1
+            fi
+            if [ "$(printf '%s' "$RELEASE_JSON" | jq -r '.isPrerelease')" != "false" ]; then
+              echo "::error::Prerelease tags cannot be deployed to production."
+              exit 1
+            fi
+          fi
+
   # ==========================================================================
   # Build and Push Docker Images
   # ==========================================================================
   build-api:
-    name: Build API Image
+    name: Prepare API Image
     runs-on: ubuntu-latest
+    needs: [deployment-preflight]
     permissions:
       contents: read
       packages: write
     outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
-    
+      image-digest: ${{ steps.digest.outputs.digest }}
+      image-name: ${{ steps.image.outputs.name }}
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - name: Normalize image name
+        id: image
+        shell: bash
+        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}/api" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract staging metadata
+        if: inputs.environment == 'staging'
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
-          images: ${{ env.API_IMAGE }}
+          images: ${{ steps.image.outputs.name }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
 
-      - name: Build and push
+      - name: Build and push staging image
+        if: inputs.environment == 'staging'
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./api
           file: ./api/Dockerfile
@@ -73,42 +105,78 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
 
+      - name: Resolve published release image
+        if: inputs.environment == 'production'
+        id: published
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          IMAGE_REF="${{ steps.image.outputs.name }}:${VERSION}"
+          DIGEST="$(docker buildx imagetools inspect "$IMAGE_REF" | awk '/^Digest:/ {print $2; exit}')"
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Could not resolve immutable digest for $IMAGE_REF."
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Select immutable image digest
+        id: digest
+        shell: bash
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            DIGEST="${{ steps.published.outputs.digest }}"
+          else
+            DIGEST="${{ steps.build.outputs.digest }}"
+          fi
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Image preparation did not produce a valid sha256 digest."
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+
   build-ui:
-    name: Build UI Image
+    name: Prepare UI Image
     runs-on: ubuntu-latest
+    needs: [deployment-preflight]
     permissions:
       contents: read
       packages: write
     outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
-    
+      image-digest: ${{ steps.digest.outputs.digest }}
+      image-name: ${{ steps.image.outputs.name }}
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - name: Normalize image name
+        id: image
+        shell: bash
+        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}/ui" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract staging metadata
+        if: inputs.environment == 'staging'
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
-          images: ${{ env.UI_IMAGE }}
+          images: ${{ steps.image.outputs.name }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
 
-      - name: Build and push
+      - name: Build and push staging image
+        if: inputs.environment == 'staging'
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./ui
           file: ./ui/Dockerfile
@@ -121,51 +189,35 @@ jobs:
           build-args: |
             VITE_API_URL=/api
 
-  build-verifier:
-    name: Build Verifier Image
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
-    
-    steps:
-      - uses: actions/checkout@v4
+      - name: Resolve published release image
+        if: inputs.environment == 'production'
+        id: published
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          IMAGE_REF="${{ steps.image.outputs.name }}:${VERSION}"
+          DIGEST="$(docker buildx imagetools inspect "$IMAGE_REF" | awk '/^Digest:/ {print $2; exit}')"
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Could not resolve immutable digest for $IMAGE_REF."
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Select immutable image digest
+        id: digest
+        shell: bash
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            DIGEST="${{ steps.published.outputs.digest }}"
+          else
+            DIGEST="${{ steps.build.outputs.digest }}"
+          fi
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Image preparation did not produce a valid sha256 digest."
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.VERIFIER_IMAGE }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
-
-      - name: Build and push
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: ./verifier
-          file: ./verifier/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
 
   # ==========================================================================
   # Deploy to Staging
@@ -173,17 +225,25 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    needs: [build-api, build-ui, build-verifier]
-    if: github.event.inputs.environment == 'staging' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    needs: [build-api, build-ui]
+    if: inputs.environment == 'staging'
     environment:
       name: staging
       url: https://staging.aegisrun.io
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install kustomize
+        run: go install sigs.k8s.io/kustomize/kustomize/v5@v5.8.1
 
       - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@v5
         with:
           version: 'v1.29.0'
 
@@ -195,8 +255,8 @@ jobs:
       - name: Update image tags
         run: |
           cd ops/k8s
-          kustomize edit set image api-image=${{ env.API_IMAGE }}@${{ needs.build-api.outputs.image-digest }}
-          kustomize edit set image ui-image=${{ env.UI_IMAGE }}@${{ needs.build-ui.outputs.image-digest }}
+          kustomize edit set image ghcr.io/aegisrun/aegisrun/api=${{ needs.build-api.outputs.image-name }}@${{ needs.build-api.outputs.image-digest }}
+          kustomize edit set image ghcr.io/aegisrun/aegisrun/ui=${{ needs.build-ui.outputs.image-name }}@${{ needs.build-ui.outputs.image-digest }}
 
       - name: Deploy to staging
         run: |
@@ -215,24 +275,18 @@ jobs:
 
       - name: Notify deployment
         if: always()
-        uses: slackapi/slack-github-action@v1.25.0
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v4.0.0
         with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
           payload: |
-            {
-              "text": "Staging deployment ${{ job.status }}: ${{ github.repository }}@${{ github.sha }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Staging Deployment ${{ job.status }}*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
-                  }
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+            text: "Staging deployment ${{ job.status }}: ${{ github.repository }}@${{ github.sha }}"
+            blocks:
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "*Staging Deployment ${{ job.status }}*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
 
   # ==========================================================================
   # Deploy to Production
@@ -240,17 +294,25 @@ jobs:
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: [build-api, build-ui, build-verifier, deploy-staging]
-    if: github.event.inputs.environment == 'production' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    needs: [build-api, build-ui]
+    if: inputs.environment == 'production'
     environment:
       name: production
       url: https://aegisrun.io
     
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install kustomize
+        run: go install sigs.k8s.io/kustomize/kustomize/v5@v5.8.1
 
       - name: Set up kubectl
-        uses: azure/setup-kubectl@v4
+        uses: azure/setup-kubectl@v5
         with:
           version: 'v1.29.0'
 
@@ -259,17 +321,66 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG_PRODUCTION }}" | base64 -d > kubeconfig
           echo "KUBECONFIG=$(pwd)/kubeconfig" >> $GITHUB_ENV
 
-      - name: Run database migrations
+      - name: Run database migrations from the candidate image
         run: |
-          kubectl -n aegisrun exec deploy/aegisrun-api -- /app/migrate up
+          cat <<'EOF' | kubectl apply -f -
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: aegisrun-migrate-${{ github.run_id }}-${{ github.run_attempt }}
+            namespace: aegisrun
+          spec:
+            backoffLimit: 0
+            ttlSecondsAfterFinished: 300
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: aegisrun
+                  app.kubernetes.io/component: api
+                  aegisrun.io/workload: migration
+              spec:
+                restartPolicy: Never
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 1000
+                  fsGroup: 1000
+                containers:
+                  - name: migrate
+                    image: ${{ needs.build-api.outputs.image-name }}@${{ needs.build-api.outputs.image-digest }}
+                    command: ["/bin/sh", "-c"]
+                    args:
+                      - |
+                        PGUSER="$DB_USER" PGPASSWORD="$DB_PASSWORD" \
+                        /app/migrate \
+                          -path /app/migrations \
+                          -database "postgres://$DB_HOST:$DB_PORT/$DB_NAME?sslmode=$DB_SSL_MODE" \
+                          up
+                    envFrom:
+                      - configMapRef:
+                          name: aegisrun-config
+                      - secretRef:
+                          name: aegisrun-secrets
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                        drop:
+                          - ALL
+          EOF
+
+          if ! kubectl -n aegisrun wait --for=condition=complete "job/aegisrun-migrate-${{ github.run_id }}-${{ github.run_attempt }}" --timeout=300s; then
+            kubectl -n aegisrun logs "job/aegisrun-migrate-${{ github.run_id }}-${{ github.run_attempt }}" || true
+            exit 1
+          fi
+          kubectl -n aegisrun logs "job/aegisrun-migrate-${{ github.run_id }}-${{ github.run_attempt }}"
 
       - name: Update image tags
         run: |
           cd ops/k8s
-          kustomize edit set image api-image=${{ env.API_IMAGE }}@${{ needs.build-api.outputs.image-digest }}
-          kustomize edit set image ui-image=${{ env.UI_IMAGE }}@${{ needs.build-ui.outputs.image-digest }}
+          kustomize edit set image ghcr.io/aegisrun/aegisrun/api=${{ needs.build-api.outputs.image-name }}@${{ needs.build-api.outputs.image-digest }}
+          kustomize edit set image ghcr.io/aegisrun/aegisrun/ui=${{ needs.build-ui.outputs.image-name }}@${{ needs.build-ui.outputs.image-digest }}
 
-      - name: Deploy to production (canary)
+      - name: Deploy to production
         run: |
           kubectl apply -k ops/k8s
           kubectl -n aegisrun rollout status deployment/aegisrun-api --timeout=300s
@@ -286,128 +397,15 @@ jobs:
 
       - name: Notify deployment
         if: always()
-        uses: slackapi/slack-github-action@v1.25.0
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v4.0.0
         with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
           payload: |
-            {
-              "text": "Production deployment ${{ job.status }}: ${{ github.repository }}@${{ github.sha }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Production Deployment ${{ job.status }}*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
-                  }
-                }
-              ]
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
-
-  # ==========================================================================
-  # Publish SDK Packages
-  # ==========================================================================
-  publish-python-sdk:
-    name: Publish Python SDK
-    runs-on: ubuntu-latest
-    needs: [deploy-production]
-    if: startsWith(github.ref, 'refs/tags/v')
-    
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install build tools
-        run: pip install build twine
-
-      - name: Build package
-        working-directory: ./sdk/python
-        run: python -m build
-
-      - name: Publish to PyPI
-        working-directory: ./sdk/python
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: twine upload dist/*
-
-  publish-typescript-sdk:
-    name: Publish TypeScript SDK
-    runs-on: ubuntu-latest
-    needs: [deploy-production]
-    if: startsWith(github.ref, 'refs/tags/v')
-    
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
-      - name: Install dependencies
-        working-directory: ./sdk/typescript
-        run: npm ci
-
-      - name: Build
-        working-directory: ./sdk/typescript
-        run: npm run build
-
-      - name: Publish to npm
-        working-directory: ./sdk/typescript
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
-
-  # ==========================================================================
-  # Create GitHub Release
-  # ==========================================================================
-  create-release:
-    name: Create GitHub Release
-    runs-on: ubuntu-latest
-    needs: [deploy-production]
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
-    
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Build verifier binaries
-        run: |
-          cd verifier
-          GOOS=linux GOARCH=amd64 go build -o ../dist/aegis-verify-linux-amd64 .
-          GOOS=linux GOARCH=arm64 go build -o ../dist/aegis-verify-linux-arm64 .
-          GOOS=darwin GOARCH=amd64 go build -o ../dist/aegis-verify-darwin-amd64 .
-          GOOS=darwin GOARCH=arm64 go build -o ../dist/aegis-verify-darwin-arm64 .
-          GOOS=windows GOARCH=amd64 go build -o ../dist/aegis-verify-windows-amd64.exe .
-
-      - name: Generate checksums
-        run: |
-          cd dist
-          sha256sum * > checksums.txt
-
-      - name: Extract release notes
-        id: release_notes
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          awk "/## \[${VERSION#v}\]/{flag=1;next}/## \[/{flag=0}flag" CHANGELOG.md > release_notes.md
-          echo "notes_file=release_notes.md" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          body_path: ${{ steps.release_notes.outputs.notes_file }}
-          files: |
-            dist/aegis-verify-*
-            dist/checksums.txt
-          draft: false
-          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+            text: "Production deployment ${{ job.status }}: ${{ github.repository }}@${{ github.sha }}"
+            blocks:
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: "*Production Deployment ${{ job.status }}*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>"
