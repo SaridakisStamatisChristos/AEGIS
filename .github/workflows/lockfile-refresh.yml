@@ -1,0 +1,44 @@
+name: Refresh npm lockfiles
+
+on:
+  push:
+    branches:
+      - 'fix/release-pipeline-hardening-2026-09'
+
+jobs:
+  refresh:
+    name: Refresh production lockfiles
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            sdk/typescript/package-lock.json
+
+      - name: Refresh UI production dependency lock
+        working-directory: ./ui
+        run: |
+          npm audit fix --package-lock-only --omit=dev
+          npm audit --omit=dev --audit-level=high
+
+      - name: Refresh TypeScript SDK production dependency lock
+        working-directory: ./sdk/typescript
+        run: |
+          npm audit fix --package-lock-only --omit=dev
+          npm audit --omit=dev --audit-level=high
+
+      - name: Upload regenerated lockfiles
+        uses: actions/upload-artifact@v7
+        with:
+          name: refreshed-npm-lockfiles
+          path: |
+            ui/package-lock.json
+            sdk/typescript/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
