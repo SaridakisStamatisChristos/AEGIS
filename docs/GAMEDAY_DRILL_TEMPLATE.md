@@ -1,7 +1,7 @@
 # AegisRun Game-Day Incident Drill Template
 
 **Owner**: Platform / SRE team  
-**Last Reviewed**: 2026-02-22  
+**Last Reviewed**: 2026-09-25  
 **Frequency**: Monthly (minimum); quarterly full drill
 
 ---
