@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hardened tag releases with main-branch ancestry checks, package-version/tag matching, pinned release tooling, and release-time govulncheck.
 - Added GitHub Actions workflow linting to the normal CI gate.
 - Upgraded the API runtime off EOL Alpine 3.19 and made high/critical Trivy plus production npm audits fail closed.
+- Raised Axios to 1.20.0 and Mermaid to 10.9.8, with npm-regenerated lockfiles resolving patched production transitive dependencies.
 
 ### Fixed
 - Removed duplicate tag-triggered publishing from the deployment workflow so `release.yml` is the sole owner of SDK publishing and GitHub Release creation.
