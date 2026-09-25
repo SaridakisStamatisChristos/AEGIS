@@ -54,16 +54,16 @@ jobs:
   # Build and Push Docker Images
   # ==========================================================================
   build-api:
-    name: Build API Image
+    name: Prepare API Image
     runs-on: ubuntu-latest
     needs: [deployment-preflight]
     permissions:
       contents: read
       packages: write
     outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
+      image-digest: ${{ steps.digest.outputs.digest }}
       image-name: ${{ steps.image.outputs.name }}
-    
+
     steps:
       - uses: actions/checkout@v7
 
@@ -82,18 +82,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract staging metadata
+        if: inputs.environment == 'staging'
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
 
-      - name: Build and push
+      - name: Build and push staging image
+        if: inputs.environment == 'staging'
         id: build
         uses: docker/build-push-action@v7
         with:
@@ -106,17 +105,47 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
 
+      - name: Resolve published release image
+        if: inputs.environment == 'production'
+        id: published
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          IMAGE_REF="${{ steps.image.outputs.name }}:${VERSION}"
+          DIGEST="$(docker buildx imagetools inspect "$IMAGE_REF" | awk '/^Digest:/ {print $2; exit}')"
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Could not resolve immutable digest for $IMAGE_REF."
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Select immutable image digest
+        id: digest
+        shell: bash
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            DIGEST="${{ steps.published.outputs.digest }}"
+          else
+            DIGEST="${{ steps.build.outputs.digest }}"
+          fi
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Image preparation did not produce a valid sha256 digest."
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+
   build-ui:
-    name: Build UI Image
+    name: Prepare UI Image
     runs-on: ubuntu-latest
     needs: [deployment-preflight]
     permissions:
       contents: read
       packages: write
     outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
+      image-digest: ${{ steps.digest.outputs.digest }}
       image-name: ${{ steps.image.outputs.name }}
-    
+
     steps:
       - uses: actions/checkout@v7
 
@@ -135,18 +164,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract staging metadata
+        if: inputs.environment == 'staging'
         id: meta
         uses: docker/metadata-action@v6
         with:
           images: ${{ steps.image.outputs.name }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
 
-      - name: Build and push
+      - name: Build and push staging image
+        if: inputs.environment == 'staging'
         id: build
         uses: docker/build-push-action@v7
         with:
@@ -161,58 +189,35 @@ jobs:
           build-args: |
             VITE_API_URL=/api
 
-  build-verifier:
-    name: Build Verifier Image
-    runs-on: ubuntu-latest
-    needs: [deployment-preflight]
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      image-digest: ${{ steps.build.outputs.digest }}
-      image-name: ${{ steps.image.outputs.name }}
-    
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Normalize image name
-        id: image
+      - name: Resolve published release image
+        if: inputs.environment == 'production'
+        id: published
         shell: bash
-        run: echo "name=${REGISTRY}/${GITHUB_REPOSITORY,,}/verifier" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          IMAGE_REF="${{ steps.image.outputs.name }}:${VERSION}"
+          DIGEST="$(docker buildx imagetools inspect "$IMAGE_REF" | awk '/^Digest:/ {print $2; exit}')"
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Could not resolve immutable digest for $IMAGE_REF."
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
+      - name: Select immutable image digest
+        id: digest
+        shell: bash
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            DIGEST="${{ steps.published.outputs.digest }}"
+          else
+            DIGEST="${{ steps.build.outputs.digest }}"
+          fi
+          if [[ ! "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Image preparation did not produce a valid sha256 digest."
+            exit 1
+          fi
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ steps.image.outputs.name }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
-
-      - name: Build and push
-        id: build
-        uses: docker/build-push-action@v7
-        with:
-          context: ./verifier
-          file: ./verifier/Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          platforms: linux/amd64,linux/arm64
 
   # ==========================================================================
   # Deploy to Staging
@@ -220,7 +225,7 @@ jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
-    needs: [build-api, build-ui, build-verifier]
+    needs: [build-api, build-ui]
     if: inputs.environment == 'staging'
     environment:
       name: staging
@@ -289,7 +294,7 @@ jobs:
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    needs: [build-api, build-ui, build-verifier]
+    needs: [build-api, build-ui]
     if: inputs.environment == 'production'
     environment:
       name: production
