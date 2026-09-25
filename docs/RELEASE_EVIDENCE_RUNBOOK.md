@@ -1,155 +1,157 @@
 # AegisRun Release Evidence Runbook
 
-Date: 2026-02-22  
-Owner: Release Manager / SRE / Security
-
----
+**Reviewed:** 2026-09-25  
+**Owner:** Release Manager / SRE / Security
 
 ## Purpose
 
-Provide a repeatable process to complete **P1-2** by collecting production release evidence from:
+This runbook defines evidence to capture for an AegisRun release and complements [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
 
-- `release-gate.yml` (release branch)
-- `release.yml` (release tag)
-- attached artifacts (SBOM, provenance, load threshold summary, canary and SLO gate evidence)
+Track separately:
 
-This runbook does **not** replace [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md); it operationalizes the evidence collection needed to fill it.
+1. repository/release-gate validation;
+2. core release artifacts;
+3. GitHub Release;
+4. PyPI/npm;
+5. actual environment deployment.
 
----
+## 1. Prerequisites
 
-## Prerequisites
+Before release:
 
-- Release branch exists (e.g., `release/v1.0.x`)
-- Tag/version selected (e.g., `v1.0.0`)
-- GitHub Actions permissions to run/view workflows and artifacts
-- Required secrets configured for release workflows (PyPI, npm, registry, etc.)
-- Local repo synced to the release branch
+- choose a SemVer version such as `v1.0.2`;
+- ensure the target commit is contained in `main`;
+- ensure Python SDK, TypeScript SDK and UI versions equal the tag without `v`;
+- update `CHANGELOG.md`;
+- verify CI, Security Scan and Release Gate;
+- configure publishing identities/credentials where required;
+- verify GitHub Actions package/attestation/content permissions.
 
----
+Use npm for npm version/lockfile changes; do not hand-edit lockfiles.
 
-## Step 1 — Create Evidence Pack Folder
-
-Use the helper script to scaffold a timestamped evidence pack:
+## 2. Evidence pack
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\scripts\prepare-release-evidence.ps1 -Version v1.0.0 -ReleaseBranch release/v1.0.x
+powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\scripts\prepare-release-evidence.ps1 -Version v<VERSION> -ReleaseBranch release/v<MAJOR>.<MINOR>.x
 ```
 
-Output directory:
+Expected path:
 
 ```text
-artifacts/releases/<UTC_TIMESTAMP>-v1.0.0/
+artifacts/releases/<UTC_TIMESTAMP>-v<VERSION>/
 ```
 
-Generated files:
-- `release-evidence.md`
-- `release-checklist.md` (copied from `docs/RELEASE_CHECKLIST.md`)
+Historical packs are immutable records; do not rewrite them when process changes.
 
-Optional automation runner (trigger workflows + watch + populate run metadata):
+## 3. Release Gate evidence
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\ops\scripts\run-release-evidence.ps1 -Version v1.0.0 -ReleaseBranch release/v1.0.x -EvidenceDir .\artifacts\releases\<UTC_TIMESTAMP>-v1.0.0
+Capture:
+
+- run URL/ID;
+- exact candidate SHA;
+- final verdict;
+- tests;
+- security/SBOM;
+- load/canary/SLO gate results;
+- artifact references.
+
+Superseded/cancelled runs caused by later pushes are not final-candidate failures. Record the final run for the exact candidate SHA.
+
+## 4. Tag and Release workflow
+
+Create the tag only after validation:
+
+```bash
+git tag -a v<VERSION> -m "AegisRun v<VERSION>"
+git push origin v<VERSION>
 ```
 
-Notes:
-- Requires GitHub CLI (`gh`) installed and authenticated.
-- By default this script also creates/pushes the release tag to trigger `release.yml`.
-- Use `-SkipTagPush` when you want to run only `release-gate.yml`.
+`release.yml` also supports `workflow_dispatch`. If another Actions workflow creates the tag using the default `GITHUB_TOKEN`, GitHub may suppress a recursive tag-triggered workflow; explicitly dispatch Release on the existing tag.
 
----
+Record every job separately:
 
-## Step 2 — Run Release-Gate Workflow (Release Branch)
+- Release Preflight;
+- Release Security Gate;
+- Release SBOM;
+- Build and Push Images;
+- Publish Python SDK;
+- Publish TypeScript SDK;
+- Create Release.
 
-1. Trigger `.github/workflows/release-gate.yml` on `release/*` branch.
-2. Wait for `release-gate-verdict` to pass.
-3. Record in `release-evidence.md`:
-   - Workflow run URL
-   - Run ID
-   - UTC timestamp
-   - Final status
+## 5. Core artifacts
 
-Required green jobs (minimum):
-- `api-unit-tests`
-- `verifier-tests`
-- `python-sdk-tests`
-- `typescript-sdk-tests`
-- `ui-tests`
-- `security-sbom`
-- `security-provenance`
-- `load-test`
-- `canary-health-gate`
-- `ops-drill-cadence`
-- `slo-escalation-gate`
-- `release-gate-verdict`
+Record immutable image digests, SBOM references and provenance attestations. Deployment must reuse published release artifacts rather than rebuild them.
 
-Required artifacts to record:
-- `sbom-release-gate`
-- `load-test-results`
+## 6. Registry evidence
 
----
+For PyPI and npm independently record one of:
 
-## Step 3 — Run Tag Release Workflow
+- **published**;
+- **not configured**;
+- **failed**, with sanitized error and recovery plan.
 
-1. Create/push signed release tag after gate pass.
-2. Wait for `.github/workflows/release.yml` to complete.
-3. Record in `release-evidence.md`:
-   - Workflow run URL
-   - Run ID
-   - UTC timestamp
-   - Final status
+Never include credentials/tokens in evidence.
 
-Required green jobs (minimum):
-- `release-security-gate`
-- `release-sbom`
-- `build-and-push`
-- `publish-python-sdk`
-- `publish-typescript-sdk`
-- `create-release`
+## 7. GitHub Release evidence
 
-Required artifacts to record:
-- `release-sbom`
-- verifier binaries attached in release
+Record:
 
----
+- release URL/tag/target SHA;
+- verifier binaries;
+- `checksums.txt`;
+- SBOM files;
+- release notes/changelog link.
 
-## Step 4 — Collect Provenance Evidence
+If core artifacts succeeded but the normal GitHub Release job was blocked by a registry failure, use an auditable recovery workflow on the existing tag/artifacts. Do not rewrite history by moving the tag.
 
-For each artifact/image/package, record reference links and digest/subject where available:
+## 8. Deployment evidence
 
-- API image provenance attestation
-- UI image provenance attestation
-- Verifier image provenance attestation
-- Python SDK artifact attestation
-- TypeScript SDK package attestation
+For each actual environment record:
 
-Populate the attestation section in `release-evidence.md`.
+- environment;
+- image digests;
+- migration result;
+- DB backup;
+- trusted-proxy configuration;
+- OIDC/TLS verification;
+- canary/smoke outcome;
+- SLO/alerts;
+- rollback target.
 
----
+## 9. v1.0.1 historical example
 
-## Step 5 — Complete Sign-Off
+v1.0.1 had:
 
-1. Fill `release-checklist.md` sections 2, 3, 7, 8 with final evidence.
-2. Confirm readiness score is `>= 90`.
-3. Store final links and reviewer signatures.
-4. Keep evidence pack under `artifacts/releases/...` and attach it to release notes.
+- preflight: success;
+- security gate: success;
+- SBOM: success;
+- image build/push: success;
+- provenance attestations: success;
+- Python build/attestation: success, PyPI authentication absent;
+- TypeScript build/attestation: success, npm authentication absent;
+- normal Create Release: skipped because it depended on both registry jobs;
+- recovery GitHub Release: success;
+- public release assets: verifier binaries, checksums, four SBOM files.
 
----
+This demonstrates why release evidence must report distribution channels independently.
 
-## Go/No-Go Rules
+## 10. Final checklist
 
-GO only if all are true:
-- release-gate workflow green
-- release tag workflow green
-- required SBOM/provenance artifacts present
-- load/canary/SLO gate evidence present
-- checklist approvals complete
-- readiness score >= 90
+A release record should answer:
 
-Otherwise: NO-GO and open follow-up remediation issues.
+- exact commit/tag;
+- gates passed;
+- image digests;
+- SBOM locations;
+- attestation locations;
+- verifier/checksums;
+- PyPI status;
+- npm status;
+- GitHub Release status;
+- deployment status;
+- migration/backup;
+- rollback target.
 
----
+## 11. Retention
 
-## Notes
-
-- This repository environment cannot execute GitHub-hosted workflows directly from local terminal.
-- Workflow execution must be completed in GitHub Actions; this runbook defines what to capture for auditable completion.
+Keep evidence under `artifacts/releases/` or another durable audit store. Preserve old packs unchanged.
