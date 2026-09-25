@@ -24,13 +24,13 @@ jobs:
       - name: Refresh UI production dependency lock
         working-directory: ./ui
         run: |
-          npm audit fix --package-lock-only --omit=dev
+          npm audit fix --package-lock-only --omit=dev || true
           npm audit --omit=dev --audit-level=high
 
       - name: Refresh TypeScript SDK production dependency lock
         working-directory: ./sdk/typescript
         run: |
-          npm audit fix --package-lock-only --omit=dev
+          npm audit fix --package-lock-only --omit=dev || true
           npm audit --omit=dev --audit-level=high
 
       - name: Upload regenerated lockfiles
