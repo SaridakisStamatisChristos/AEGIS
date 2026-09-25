@@ -1,11 +1,15 @@
 # AegisRun Policy DSL Reference
 
-**Version**: 1.0.0  
-**Last Updated**: 2026-02-03
+**Policy-spec version:** 1.0.0  
+**Compatible application baseline:** AegisRun v1.0.1  
+**Reviewed:** 2026-09-25
 
 ---
 
 ## 1. Overview
+
+This document describes the policy **specification**. When creating a policy through the HTTP API, wrap the spec in the current request shape: `{"name":"...","spec":{...}}`. See [API_REFERENCE.md](API_REFERENCE.md).
+
 
 AegisRun policies are defined in YAML and enforce constraints on agent tool usage. Policies support:
 
