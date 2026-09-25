@@ -322,7 +322,7 @@ jobs:
           apiVersion: batch/v1
           kind: Job
           metadata:
-            name: aegisrun-migrate-${{ github.run_id }}
+            name: aegisrun-migrate-${{ github.run_id }}-${{ github.run_attempt }}
             namespace: aegisrun
           spec:
             backoffLimit: 0
@@ -331,9 +331,14 @@ jobs:
               metadata:
                 labels:
                   app.kubernetes.io/name: aegisrun
-                  app.kubernetes.io/component: migration
+                  app.kubernetes.io/component: api
+                  aegisrun.io/workload: migration
               spec:
                 restartPolicy: Never
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 1000
+                  fsGroup: 1000
                 containers:
                   - name: migrate
                     image: ${{ needs.build-api.outputs.image-name }}@${{ needs.build-api.outputs.image-digest }}
@@ -352,16 +357,17 @@ jobs:
                           name: aegisrun-secrets
                     securityContext:
                       allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
                       capabilities:
                         drop:
                           - ALL
           EOF
 
-          if ! kubectl -n aegisrun wait --for=condition=complete "job/aegisrun-migrate-${{ github.run_id }}" --timeout=300s; then
-            kubectl -n aegisrun logs "job/aegisrun-migrate-${{ github.run_id }}" || true
+          if ! kubectl -n aegisrun wait --for=condition=complete "job/aegisrun-migrate-${{ github.run_id }}-${{ github.run_attempt }}" --timeout=300s; then
+            kubectl -n aegisrun logs "job/aegisrun-migrate-${{ github.run_id }}-${{ github.run_attempt }}" || true
             exit 1
           fi
-          kubectl -n aegisrun logs "job/aegisrun-migrate-${{ github.run_id }}"
+          kubectl -n aegisrun logs "job/aegisrun-migrate-${{ github.run_id }}-${{ github.run_attempt }}"
 
       - name: Update image tags
         run: |
