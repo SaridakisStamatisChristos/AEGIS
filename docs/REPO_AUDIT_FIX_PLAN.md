@@ -1,8 +1,10 @@
 # AegisRun Repo Audit Fix Plan
 
+> **Historical document.** This plan records the February 2026 audit/remediation state. It is preserved for provenance and is superseded by [../PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) and [../PRODUCTION_ROADMAP.md](../PRODUCTION_ROADMAP.md). Do not use the 88/100 score or Conditional No-Go statement below as the current project status.
+
 Version: 1.0  
 Date: 2026-02-22  
-Status: Draft for execution
+Status: Historical / superseded 2026-09-25
 
 ---
 
