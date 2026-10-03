@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use AegisRun / AEGIS in research, please cite the software and the accompanying Agentic Execution Assurance preprint."
+title: "AegisRun / AEGIS"
+type: software
+version: "1.0.1"
+authors:
+  - family-names: "Saridakis"
+    given-names: "Stamatis-Christos"
+    orcid: "https://orcid.org/0009-0002-1699-2043"
+repository-code: "https://github.com/SaridakisStamatisChristos/AEGIS"
+url: "https://github.com/SaridakisStamatisChristos/AEGIS"
+license: "Apache-2.0"
+keywords:
+  - "agentic AI"
+  - "runtime assurance"
+  - "runtime enforcement"
+  - "tool-using agents"
+  - "tamper-evident evidence"
+  - "auditability"
+  - "OpenTelemetry"
+preferred-citation:
+  type: article
+  title: "Agentic Execution Assurance: Observation-Bounded Certification, Runtime Enforcement, and Tamper-Evident Evidence"
+  authors:
+    - family-names: "Saridakis"
+      given-names: "Stamatis-Christos"
+      orcid: "https://orcid.org/0009-0002-1699-2043"
+  year: 2026
+  doi: "10.5281/zenodo.23119087"
+  url: "https://doi.org/10.5281/zenodo.23119087"
